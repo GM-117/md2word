@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-electron/
+out/
+build/
+*.tsbuildinfo
+
+# pandoc sidecar binary (fetched by scripts/fetch-pandoc.mjs, locked by packages/core/assets/pandoc.lock.json)
+packages/core/assets/bin/
+packages/core/assets/pandoc-*.zip
+
+# test & coverage
+coverage/
+playwright-report/
+test-results/
+.blob-testing/
+
+# runtime data (settings, logs, caches)
+.data/
+*.log
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
