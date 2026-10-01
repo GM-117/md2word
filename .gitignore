@@ -8,8 +8,9 @@ out/
 build/
 *.tsbuildinfo
 
-# pandoc sidecar binary (fetched by scripts/fetch-pandoc.mjs, locked by packages/core/assets/pandoc.lock.json)
+# pandoc sidecar binary (fetched by packages/core/scripts/fetch-pandoc.mjs, locked by assets/pandoc.lock.json)
 packages/core/assets/bin/
+packages/core/assets/downloads/
 packages/core/assets/pandoc-*.zip
 
 # test & coverage

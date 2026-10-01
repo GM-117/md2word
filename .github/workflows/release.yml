@@ -1,0 +1,46 @@
+name: Release
+
+# M4/M5 启用：tag 触发 → electron-builder 三平台产物 → GitHub Release
+# 当前为骨架（M0），保持空跑通过；electron-builder 接入后由 M4 补全。
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: build & publish (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            args: --arm64
+          - os: macos-13
+            args: --x64
+          - os: windows-2022
+            args: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch pandoc sidecar
+        run: pnpm setup
+
+      - name: Build packages
+        run: pnpm build
+
+      # M4 接入：pnpm --filter @md2word/desktop dist ${{ matrix.args }}
+      # M4 接口：产物校验（pandoc 可执行 + GPL 声明在位）→ release 上传
+      - name: Placeholder (no-op until M4)
+        run: echo "release pipeline wired at M4; tag ${{ github.ref_name }}"

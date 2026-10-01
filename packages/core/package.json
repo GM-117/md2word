@@ -1,0 +1,31 @@
+{
+  "name": "@md2word/core",
+  "version": "0.1.0",
+  "description": "md2word 转换核心：pandoc sidecar spawn、选项映射、产物校验、原子写、串行队列（纯 TS，不依赖宿主）",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "assets/reference-zh.docx",
+    "assets/pandoc.lock.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "fetch:pandoc": "node scripts/fetch-pandoc.mjs",
+    "postinstall": "node scripts/fetch-pandoc.mjs || echo '[core] pandoc fetch skipped (offline?) — run `pnpm fetch:pandoc` later'",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test": "pnpm run test:unit && pnpm run test:integration"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

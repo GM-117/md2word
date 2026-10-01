@@ -1,0 +1,26 @@
+{
+  "name": "@md2word/renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "md2word 渲染层：纯网页（web-host 托管，M4 由 Electron 壳复用，UI 零改动）",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo 'renderer: E2E 由 Playwright 统一执行（见 M2）' && exit 0"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.3"
+  }
+}

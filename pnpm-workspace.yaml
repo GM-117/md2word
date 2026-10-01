@@ -1,0 +1,6 @@
+packages:
+  - 'packages/*'
+
+# pnpm 11.23+ 构建脚本白名单（map: 包名 → bool）：esbuild 的 postinstall 用于平台二进制校验
+allowBuilds:
+  esbuild: true

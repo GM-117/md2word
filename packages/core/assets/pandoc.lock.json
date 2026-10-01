@@ -1,0 +1,27 @@
+{
+  "version": "3.12",
+  "releaseUrl": "https://github.com/jgm/pandoc/releases/tag/3.12",
+  "sourceUrl": "https://github.com/jgm/pandoc",
+  "license": "GPL-2.0+",
+  "lockedAt": "2026-10-01",
+  "platforms": {
+    "darwin-arm64": {
+      "zip": "pandoc-3.12-arm64-macOS.zip",
+      "url": "https://github.com/jgm/pandoc/releases/download/3.12/pandoc-3.12-arm64-macOS.zip",
+      "bytes": 42267373,
+      "sha256": "f148ca09c9f36594db527a9fc988ad736290ce428f79594c50208cd1ec58b3c0"
+    },
+    "darwin-x64": {
+      "zip": "pandoc-3.12-x86_64-macOS.zip",
+      "url": "https://github.com/jgm/pandoc/releases/download/3.12/pandoc-3.12-x86_64-macOS.zip",
+      "bytes": 26442035,
+      "sha256": "18577f9460c3dc5d2651ad3bab37d513bc2034a5a777fbe18fa0a5acf2e936ea"
+    },
+    "win32-x64": {
+      "zip": "pandoc-3.12-windows-x86_64.zip",
+      "url": "https://github.com/jgm/pandoc/releases/download/3.12/pandoc-3.12-windows-x86_64.zip",
+      "bytes": 42114462,
+      "sha256": "2a77ebc2517d13e95056e76b1cd5b574cfe958ac61aa6058117d80c22ca19b79"
+    }
+  }
+}
