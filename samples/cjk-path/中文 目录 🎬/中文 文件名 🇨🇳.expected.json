@@ -1,0 +1,6 @@
+{
+  "description": "中文+空格+emoji 路径全链路（spawn 参数数组、相对图片解析）",
+  "ok": true,
+  "stats": { "headings": 1, "images": 1, "tables": 0, "math": 0 },
+  "warningsExcludeCodes": ["W_IMAGE_FETCH", "W_IMAGE_OFFLINE"]
+}

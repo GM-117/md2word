@@ -1,0 +1,5 @@
+{
+  "description": "空文件：必须产出合法空 docx",
+  "ok": true,
+  "stats": { "headings": 0, "tables": 0, "images": 0, "math": 0, "footnotes": 0, "codeBlocks": 0 }
+}

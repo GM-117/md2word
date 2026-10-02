@@ -1,0 +1,16 @@
+{
+  "description": "4 个有效公式产出 oMath；未定义控制序列公式按 TeX 原文输出（W_MATH，不产出 oMath）",
+  "ok": true,
+  "stats": {
+    "headings": 4,
+    "math": 4,
+    "tables": 0,
+    "images": 0
+  },
+  "warningsIncludeCodes": [
+    "W_MATH"
+  ],
+  "warningsExcludeCodes": [
+    "W_IMAGE_FETCH"
+  ]
+}

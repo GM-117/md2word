@@ -1,0 +1,6 @@
+{
+  "description": "同目录/子目录/中文空格文件名本地图片，路径绝对化后全部命中",
+  "ok": true,
+  "stats": { "headings": 1, "images": 3, "tables": 0, "math": 0 },
+  "warningsExcludeCodes": ["W_IMAGE_FETCH", "W_IMAGE_OFFLINE"]
+}

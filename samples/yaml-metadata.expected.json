@@ -1,0 +1,7 @@
+{
+  "description": "YAML front matter title/author 透传到 docx 核心属性",
+  "ok": true,
+  "stats": { "headings": 1, "tables": 0, "math": 0, "images": 0 },
+  "metadata": { "title": "YAML 元数据样例", "author": "调研小组" },
+  "warningsExcludeCodes": ["W_IMAGE_FETCH", "W_MATH"]
+}

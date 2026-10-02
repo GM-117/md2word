@@ -1,0 +1,13 @@
+{
+  "description": "指向本机拒绝端口的远程图（确定性失败）：W_IMAGE_FETCH + pandoc 单格 FigureTable 占位（tables=1 为预期）",
+  "ok": true,
+  "stats": {
+    "headings": 1,
+    "images": 0,
+    "tables": 1,
+    "math": 0
+  },
+  "warningsIncludeCodes": [
+    "W_IMAGE_FETCH"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "description": "调研实测样例：标题/行内/列表/任务列表/表格/代码/引用/脚注/公式/图片全覆盖",
+  "ok": true,
+  "stats": { "headings": 9, "tables": 1, "images": 1, "math": 2, "footnotes": 1, "codeBlocks": 1, "plainCodeBlocks": 0 },
+  "warningsExcludeCodes": ["W_IMAGE_FETCH", "W_MATH"]
+}

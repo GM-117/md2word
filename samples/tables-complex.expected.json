@@ -1,0 +1,16 @@
+{
+  "description": "三种对齐 + 行内格式单元格 + 多表",
+  "ok": true,
+  "stats": {
+    "headings": 4,
+    "tables": 2,
+    "images": 0,
+    "math": 0,
+    "footnotes": 0,
+    "codeBlocks": 0
+  },
+  "warningsExcludeCodes": [
+    "W_IMAGE_FETCH",
+    "W_MATH"
+  ]
+}

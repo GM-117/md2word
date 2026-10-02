@@ -19,6 +19,10 @@ playwright-report/
 test-results/
 .blob-testing/
 
+# 大样例由 scripts/generate-large-samples.mjs 生成（§5.2），不入库
+samples/large-*.md
+samples/*.docx
+
 # runtime data (settings, logs, caches)
 .data/
 *.log
