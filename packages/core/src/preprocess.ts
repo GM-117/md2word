@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, type Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { MAX_SOURCE_BYTES } from './types.js';
 
@@ -16,7 +16,7 @@ export class SourceError extends Error {
 
 /** 校验源文件存在且 ≤20MB（§5.3 E_SOURCE_TOO_LARGE） */
 export function assertSourceUsable(srcPath: string): void {
-  let st: import('node:fs').Stats;
+  let st: Stats;
   try {
     st = statSync(srcPath);
   } catch {

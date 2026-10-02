@@ -2,7 +2,6 @@
 // 生成内置中文模板 reference-zh.docx（开发计划 §3 M3：pandoc 默认模板改样式生成）。
 // 仅修改模板文件的样式定义（rFonts/sz 等），不改 pandoc 本体 —— 符合 §2.4 GPL 边界。
 // 用法：node scripts/make-reference-zh.mjs
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

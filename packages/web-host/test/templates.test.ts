@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -123,7 +123,7 @@ describe('POST /api/templates 导入与校验（M3 DoD：无效模板被拒并�
     await app.inject({ method: 'PUT', url: '/api/settings', payload: { defaultTemplate: '我的 模板' } });
     const res = await app.inject({ method: 'DELETE', url: `/api/templates/${encodeURIComponent('我的 模板')}` });
     expect(res.statusCode).toBe(200);
-    const list = (await app.inject({ method: 'GET', url: '/api/templates' })).json() as { user: unknown[]; defaultTemplate: string };
+    const list = (await app.inject({ method: 'GET', url: '/api/templates' })).json() as { user: Array<{ name: string }>; defaultTemplate: string };
     expect(list.user.some((t) => t.name === '我的 模板')).toBe(false);
     expect(list.defaultTemplate).toBe('builtin-zh');
   });

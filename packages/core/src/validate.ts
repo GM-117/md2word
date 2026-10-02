@@ -69,8 +69,8 @@ export function hasNamedStyle(stylesXml: string | undefined, styleIdOrName: stri
   return new RegExp(`<w:name w:val="${styleIdOrName}"`).test(stylesXml);
 }
 
-/** 从 document.xml（及 footnotes.xml）统计元素命中数 */
-export function computeStats(documentXml: string, footnotesXml?: string): ConvertStats {
+/** 从 document.xml（及可选 footnotes.xml 预留）统计元素命中数 */
+export function computeStats(documentXml: string, _footnotesXml?: string): ConvertStats {
   return {
     // pandoc 标题段落样式：Heading1..Heading6（TOC 域段落用 TOC1/TOC 样式，不会误计）
     headings: countMatches(documentXml, /w:pStyle w:val="Heading[1-6]"/g),
