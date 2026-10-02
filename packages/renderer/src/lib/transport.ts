@@ -64,7 +64,8 @@ export interface ApiTransport {
   saveSettings(patch: Settings): Promise<Settings>;
   exportLogUrl(): string;
   downloadUrl(path: string): string;
-  cancel(): Promise<void>;
+  /** 中断正在进行的转换并清空等待队列；返回被取消的任务数 */
+  cancel(): Promise<{ cancelled: number }>;
   /** 打开产物文件（系统默认程序）/ 所在文件夹 */
   open(jobId: string, name: string, folder: boolean): Promise<boolean>;
   /** 模板列表（含校验状态） */
@@ -116,8 +117,10 @@ export class HttpTransport implements ApiTransport {
     return path; // 服务端返回的 downloadUrl 已是相对端点
   }
 
-  async cancel(): Promise<void> {
-    await fetch('/api/cancel', { method: 'POST' });
+  async cancel(): Promise<{ cancelled: number }> {
+    const r = await fetch('/api/cancel', { method: 'POST' });
+    const body = (await r.json().catch(() => ({}))) as { cancelled?: number };
+    return { cancelled: typeof body.cancelled === 'number' ? body.cancelled : 0 };
   }
 
   async open(jobId: string, name: string, folder: boolean): Promise<boolean> {
@@ -148,4 +151,94 @@ export class HttpTransport implements ApiTransport {
   }
 }
 
-export const transport: ApiTransport = new HttpTransport();
+/* ---------- Electron IPC 传输（M4：window.md2word 桥存在时自动选用，UI 零改动） ---------- */
+
+/** 预加载桥暴露的白名单 API（与 packages/desktop/src/preload/index.ts 一一对应） */
+export interface Md2WordBridge {
+  platform: string;
+  health(): Promise<Health>;
+  convert(
+    entries: Array<{ name: string; path?: string; bytes?: Uint8Array }>,
+    options: ConvertOptionsPayload,
+  ): Promise<JobResult>;
+  cancel(): Promise<{ ok: boolean; cancelled?: number }>;
+  getSettings(): Promise<Settings>;
+  saveSettings(patch: Settings): Promise<Settings>;
+  open(jobId: string, name: string, folder: boolean): Promise<boolean>;
+  listTemplates(): Promise<TemplateInfo>;
+  uploadTemplate(name: string, bytes: Uint8Array): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }>;
+  deleteTemplate(name: string): Promise<boolean>;
+  /** 拖拽/选择的 File → 真实文件系统路径；虚拟文件（如自动化注入）返回空串 */
+  getPathForFile(file: File): string;
+}
+
+declare global {
+  interface Window {
+    md2word?: Md2WordBridge;
+  }
+}
+
+function bridge(): Md2WordBridge {
+  if (!window.md2word) throw new Error('md2word 桥不可用（非桌面环境）');
+  return window.md2word;
+}
+
+export class IpcTransport implements ApiTransport {
+  async health(): Promise<Health> {
+    return bridge().health();
+  }
+
+  async convert(files: File[], options: ConvertOptionsPayload): Promise<JobResult> {
+    // path 模式优先（真实文件：直接从源位置转换，产物写源目录）；取不到路径时回退字节通道
+    const entries = await Promise.all(
+      files.map(async (f) => {
+        const path = bridge().getPathForFile(f);
+        if (path) return { name: f.name, path };
+        return { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) };
+      }),
+    );
+    return bridge().convert(entries, options);
+  }
+
+  async getSettings(): Promise<Settings> {
+    return bridge().getSettings();
+  }
+
+  async saveSettings(patch: Settings): Promise<Settings> {
+    return bridge().saveSettings(patch);
+  }
+
+  exportLogUrl(): string {
+    return 'md2word://log/export'; // 主进程导航拦截 → 存盘对话框
+  }
+
+  downloadUrl(path: string): string {
+    return path; // 结果条目已携带 md2word://download/<jobId>/<name>
+  }
+
+  async cancel(): Promise<{ cancelled: number }> {
+    const r = await bridge().cancel();
+    return { cancelled: r.cancelled ?? 0 };
+  }
+
+  async open(jobId: string, name: string, folder: boolean): Promise<boolean> {
+    return bridge().open(jobId, name, folder);
+  }
+
+  async listTemplates(): Promise<TemplateInfo> {
+    return bridge().listTemplates();
+  }
+
+  async uploadTemplate(file: File): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return bridge().uploadTemplate(file.name, bytes);
+  }
+
+  async deleteTemplate(name: string): Promise<boolean> {
+    return bridge().deleteTemplate(name);
+  }
+}
+
+/** 环境自动选择：Electron 下走 IPC，浏览器/web-host 下走 HTTP（UI 组件对此无感知） */
+export const transport: ApiTransport =
+  typeof window !== 'undefined' && window.md2word ? new IpcTransport() : new HttpTransport();

@@ -40,7 +40,23 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      # M4 接入：pnpm --filter @md2word/desktop dist ${{ matrix.args }}
-      # M4 接口：产物校验（pandoc 可执行 + GPL 声明在位）→ release 上传
-      - name: Placeholder (no-op until M4)
-        run: echo "release pipeline wired at M4; tag ${{ github.ref_name }}"
+      - name: Build desktop installers (electron-builder)
+        run: pnpm --filter @md2word/desktop dist ${{ matrix.args }}
+
+      - name: Verify bundle (pandoc sidecar + GPL notice + renderer)
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            APP_DIR=$(find packages/desktop/release -maxdepth 2 -name "md2word.app" | head -1)
+            node packages/desktop/scripts/verify-dist.mjs "$APP_DIR"
+          else
+            node packages/desktop/scripts/verify-dist.mjs packages/desktop/release/win-unpacked --win
+          fi
+
+      - name: Upload installers to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/desktop/release/*.dmg
+            packages/desktop/release/*.exe
+          generate_release_notes: true

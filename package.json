@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "test": "pnpm -r test",
     "test:unit": "pnpm --filter @md2word/core test:unit",
-    "test:integration": "pnpm --filter @md2word/core test:integration"
+    "test:integration": "pnpm --filter @md2word/core test:integration",
+    "dev:desktop": "concurrently -k -n renderer,electron -c green,yellow \"pnpm --filter @md2word/renderer dev --strictPort\" \"pnpm --filter @md2word/desktop dev\""
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

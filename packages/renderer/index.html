@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- CSP：web 与 Electron 共用（file: 兼容打包加载；ws 兼容 Vite dev HMR） -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' file:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 ws://127.0.0.1:5173 http://127.0.0.1:5175"
+    />
     <title>md2word — Markdown 转 Word</title>
   </head>
   <body>

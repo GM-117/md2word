@@ -176,7 +176,11 @@ export async function convertMarkdown(srcPath: string, opts: ConvertOptions = {}
 
     // 5. 组参数并 spawn（参数数组、UTF-8、超时 kill 进程树）
     const referenceDocx = opts.referenceDocx ?? getBundledReferenceDocx() ?? undefined;
-    const offlineFilterPath = opts.offline ? join(CORE_ROOT, 'assets', 'offline-images.lua') : undefined;
+    // MD2WORD_LUA_FILTER：宿主注入（desktop 打包后 core 在 asar 内，pandoc 子进程读不到虚拟路径，
+    // 过滤器须落在 extraResources 真实文件系统；与 PANDOC_PATH/MD2WORD_PANDOC_BIN 注入模式一致）
+    const offlineFilterPath = opts.offline
+      ? (process.env.MD2WORD_LUA_FILTER ?? join(CORE_ROOT, 'assets', 'offline-images.lua'))
+      : undefined;
     const args = buildPandocArgs(
       {
         inputMd: tempMdPath,

@@ -1,0 +1,50 @@
+appId: com.md2word.app
+productName: md2word
+copyright: md2word — 个人 Markdown→Word 工具（pandoc 3.12 sidecar，GPL-2.0+ 合规见包内 THIRD-PARTY-LICENSES.md）
+
+directories:
+  output: release
+  buildResources: build
+
+# 主进程/预加载脚本（dist/main ESM + dist/preload/index.cjs）
+files:
+  - dist/**
+  - package.json
+
+asar: true
+
+# pandoc sidecar / renderer 产物 / 内置模板 / Lua 过滤器 / GPL 声明 —— 均落真实文件系统
+# （pandoc 是外部进程，读不了 asar 虚拟路径，故不放 asarUnpack 而走 extraResources）
+extraResources:
+  - { from: resources/renderer, to: renderer, filter: ['**/*'] }
+  - { from: resources/pandoc, to: pandoc, filter: ['**/*'] }
+  - { from: resources/templates, to: templates, filter: ['**/*'] }
+  - { from: resources/filters, to: filters, filter: ['**/*'] }
+  - { from: build/THIRD-PARTY-LICENSES.md, to: THIRD-PARTY-LICENSES.md }
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  identity: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+
+win:
+  icon: build/icon.ico
+  # 阶段一不购买证书（开发计划 §3 签名策略）：SmartScreen 解除指引见 README
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  artifactName: ${productName} Setup ${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: md2word
+
+dmg:
+  title: md2word ${version}
+  artifactName: ${productName}-${version}-${arch}.${ext}

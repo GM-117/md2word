@@ -42,6 +42,14 @@ jobs:
       - name: Integration tests (real pandoc, golden samples)
         run: pnpm test:integration
 
+      - name: Desktop unit + integration (M4)
+        run: |
+          pnpm --filter @md2word/desktop test
+          pnpm --filter @md2word/desktop test:integration
+
+      - name: Desktop E2E (Playwright _electron)
+        run: pnpm --filter @md2word/desktop e2e
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

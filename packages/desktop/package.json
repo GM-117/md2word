@@ -1,0 +1,33 @@
+{
+  "name": "@md2word/desktop",
+  "version": "0.1.0",
+  "description": "md2word Electron 壳：IPC 白名单桥接 core + 复用 renderer（M4）",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "node scripts/run-electron-dev.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-preload.mjs",
+    "dist": "pnpm build && node scripts/dist.mjs",
+    "dist:dir": "pnpm build && node scripts/dist.mjs --dir",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@md2word/core": "workspace:*",
+    "electron-store": "^11.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.10.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
