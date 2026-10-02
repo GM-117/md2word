@@ -1,22 +1,20 @@
+import { createReadStream, mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
+import { join, resolve, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { default as fastify } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { createReadStream, existsSync, mkdirSync, statSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { HIGHLIGHT_STYLES, resolvePandocInfo, type ConvertOptions, type HighlightStyle } from '@md2word/core';
+import { HIGHLIGHT_STYLES, resolvePandocInfo, validateTemplate, getBundledReferenceDocx, type ConvertOptions, type HighlightStyle } from '@md2word/core';
 import { LogBuffer } from './lib/logger.js';
 import { SettingsStore } from './lib/settings.js';
 import { JobManager, type JobResult } from './lib/jobs.js';
 
 export interface CreateServerOptions {
-  /** 数据目录（.data）：jobs/settings/log；默认包根 ../.data */
+  /** 数据目录（.data）：jobs/settings/log/templates；默认仓库根 .data */
   dataDir?: string;
   /** 静态托管目录（renderer dist）；缺省不托管（开发时由 Vite 服务） */
   staticDir?: string;
-  /** 测试注入：不监听端口 */
-  noListen?: never;
 }
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -28,30 +26,128 @@ const DEFAULT_SETTINGS: Record<string, unknown> = {
   highlightStyle: 'pygments',
   offline: false,
   overwrite: false,
+  defaultTemplate: 'builtin-zh',
+  metaTitle: '',
+  metaAuthor: '',
   recentFiles: [] as string[],
 };
 
 export async function createServer(opts: CreateServerOptions = {}) {
   const dataDir = resolve(opts.dataDir ?? join(REPO_ROOT, '.data'));
-  mkdirSync(dataDir, { recursive: true });
+  const templatesDir = join(dataDir, 'templates');
+  mkdirSync(templatesDir, { recursive: true });
 
   const logger = new LogBuffer();
   logger.attachFile(join(dataDir, 'md2word.log'));
   const settings = new SettingsStore(dataDir, DEFAULT_SETTINGS);
   const jobs = new JobManager(dataDir, logger);
 
+  /** pandoc 原生模板导出缓存（pandoc-default 显式选择时使用；core 层 undefined 会回退内置模板） */
+  async function ensurePandocDefaultTemplate(): Promise<string> {
+    const cached = join(templatesDir, '.pandoc-default.docx');
+    if (existsSync(cached)) return cached;
+    const pandoc = await resolvePandocInfo();
+    if (!pandoc) throw new Error('pandoc 不可用，无法导出默认模板');
+    const { runPandoc } = await import('@md2word/core');
+    const run = await runPandoc(pandoc.path, ['--print-default-data-file', 'reference.docx'], { timeoutMs: 30_000 });
+    if (run.code !== 0 || run.stdoutBytes.length < 1000) {
+      throw new Error(`导出 pandoc 默认模板失败：${run.stderr.slice(0, 200)}`);
+    }
+    writeFileSync(cached, run.stdoutBytes);
+    return cached;
+  }
+
+  /** 解析生效模板：请求指定 > 用户默认模板 > 内置中文模板 > pandoc 原生（显式选择时） */
+  async function resolveTemplate(requested?: string): Promise<string | undefined> {
+    if (requested) return requested;
+    const pref = settings.all.defaultTemplate;
+    if (pref === 'pandoc-default') return ensurePandocDefaultTemplate();
+    if (typeof pref === 'string' && pref !== 'builtin-zh') {
+      const safe = basename(pref);
+      const p = join(templatesDir, safe);
+      if (pref === safe && existsSync(p)) return p;
+      logger.warn(`defaultTemplate 指向的模板不存在，回退：${pref}`);
+    }
+    return getBundledReferenceDocx() ?? undefined;
+  }
+
   const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 });
   await app.register(multipart, {
-    limits: { fileSize: 21 * 1024 * 1024, files: 50 },
+    limits: { fileSize: 64 * 1024 * 1024, files: 50 },
   });
 
-  // ---- 健康检查（M0 起步页链路） ----
+  // ---- 健康检查 ----
   app.get('/api/health', async () => {
     const pandoc = await resolvePandocInfo();
     return { ok: true, name: 'md2word web-host', pandoc, pending: jobs.pendingCount, running: jobs.isRunning };
   });
 
-  // ---- 转换（US1：上传 → 队列 → 结果） ----
+  // ---- 模板管理（M3：导入/选择/校验） ----
+  app.get('/api/templates', async () => {
+    const user = readdirSync(templatesDir)
+      .filter((f) => f.toLowerCase().endsWith('.docx'))
+      .map((f) => {
+        const p = join(templatesDir, f);
+        const v = validateTemplate(p);
+        return { name: f.replace(/\.docx$/i, ''), valid: v.ok, missingStyles: v.missingStyles, error: v.error };
+      });
+    const bundled = getBundledReferenceDocx();
+    return {
+      builtin: bundled ? { name: '内置中文模板', id: 'builtin-zh', valid: validateTemplate(bundled).ok } : null,
+      pandocDefault: { name: 'pandoc 默认样式', id: 'pandoc-default' },
+      user,
+      defaultTemplate: settings.all.defaultTemplate,
+    };
+  });
+
+  app.post('/api/templates', async (req, reply) => {
+    const parts = req.parts();
+    let saved: string | null = null;
+    for await (const part of parts) {
+      if (part.type !== 'file') continue;
+      const safeName = (part.filename ?? '').split(/[\\/]/).pop() ?? '';
+      if (!safeName.toLowerCase().endsWith('.docx')) {
+        reply.code(400);
+        return { ok: false, error: '模板必须是 .docx 文件' };
+      }
+      const buf = await part.toBuffer();
+      const target = join(templatesDir, safeName);
+      writeFileSync(target, buf);
+      saved = target;
+    }
+    if (!saved) {
+      reply.code(400);
+      return { ok: false, error: '未收到模板文件' };
+    }
+    const v = validateTemplate(saved);
+    if (!v.ok) {
+      unlinkSync(saved); // 无效模板不落库
+      reply.code(400);
+      logger.warn(`template rejected: ${basename(saved)} missing=${v.missingStyles.join(',')} error=${v.error ?? ''}`);
+      return {
+        ok: false,
+        error: v.error ?? `模板缺少必需样式：${v.missingStyles.join('、')}（请基于内置模板或 pandoc 默认模板修改）`,
+        missingStyles: v.missingStyles,
+      };
+    }
+    logger.info(`template imported: ${basename(saved)}`);
+    return { ok: true, name: basename(saved).replace(/\.docx$/i, '') };
+  });
+
+  app.delete('/api/templates/:name', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const safe = basename(name);
+    const p = join(templatesDir, `${safe}.docx`);
+    if (!existsSync(p)) {
+      reply.code(404);
+      return { ok: false, error: '模板不存在' };
+    }
+    unlinkSync(p);
+    if (settings.all.defaultTemplate === safe) settings.set({ defaultTemplate: 'builtin-zh' });
+    return { ok: true };
+  });
+
+  // ---- 转换 ----
   app.post('/api/convert', async (req, reply) => {
     const parts = req.parts();
     const jobDir = join(dataDir, 'jobs', randomUUID());
@@ -61,20 +157,16 @@ export async function createServer(opts: CreateServerOptions = {}) {
 
     for await (const part of parts) {
       if (part.type === 'file') {
-        // 防路径穿越：只取 basename
-        const safeName = part.filename.split(/[\\/]/).pop() ?? part.filename;
+        const safeName = (part.filename ?? '').split(/[\\/]/).pop() ?? part.filename;
         const { writeFileSync } = await import('node:fs');
         const buf = await part.toBuffer();
         if (/\.(md|markdown|mdown|mkd)$/i.test(safeName)) {
-          // 转换对象：重名附加序号，保留全部文件
           let finalName = safeName;
           let n = 1;
           while (names.includes(finalName)) finalName = `${++n}-${safeName}`;
           writeFileSync(join(jobDir, finalName), buf);
           names.push(finalName);
         } else {
-          // 附带资源（图片等）：按原文件名保存到作业目录，
-          // 供 md 内相对路径引用（Web 上传模式拖入资源即可内联）
           writeFileSync(join(jobDir, safeName), buf);
         }
       } else if (part.fieldname === 'options') {
@@ -92,18 +184,24 @@ export async function createServer(opts: CreateServerOptions = {}) {
       return { ok: false, error: '未收到任何 .md 文件（支持 .md/.markdown/.mdown/.mkd）' };
     }
 
-    // 设置持久化的选项作为缺省，请求内 options 覆盖
+    const s = settings.all;
     const merged: ConvertOptions = {
-      toc: settings.all.toc === true,
-      tocDepth: (settings.all.tocDepth as 1 | 2 | 3 | 4 | 5 | 6) ?? 3,
-      numberSections: settings.all.numberSections === true,
-      highlightStyle: (settings.all.highlightStyle as HighlightStyle) ?? 'pygments',
-      offline: settings.all.offline === true,
+      toc: s.toc === true,
+      tocDepth: (s.tocDepth as 1 | 2 | 3 | 4 | 5 | 6) ?? 3,
+      numberSections: s.numberSections === true,
+      highlightStyle: (s.highlightStyle as HighlightStyle) ?? 'pygments',
+      offline: s.offline === true,
+      referenceDocx: await resolveTemplate(options.referenceDocx),
+      metadata: {
+        title: typeof s.metaTitle === 'string' && s.metaTitle ? s.metaTitle : undefined,
+        author: typeof s.metaAuthor === 'string' && s.metaAuthor ? s.metaAuthor : undefined,
+      },
       ...options,
     };
+    if (merged.metadata && !merged.metadata.title && !merged.metadata.author) delete merged.metadata;
 
     const state = jobs.createJob(jobDir, names);
-    logger.info(`job accepted: ${names.length} file(s), options=${JSON.stringify(merged)}`);
+    logger.info(`job accepted: ${names.length} file(s), options=${JSON.stringify({ ...merged, referenceDocx: merged.referenceDocx ? basename(merged.referenceDocx) : undefined })}`);
     const result = await jobs.enqueueJob(state, merged);
     return result satisfies JobResult;
   });
@@ -132,7 +230,7 @@ export async function createServer(opts: CreateServerOptions = {}) {
     return reply.send(createReadStream(file));
   });
 
-  // ---- 打开文件/目录（US1：点"打开"直接进 Word；打开所在文件夹） ----
+  // ---- 打开文件/目录 ----
   app.post('/api/open/:jobId/:name', async (req, reply) => {
     const { jobId, name } = req.params as { jobId: string; name: string };
     const dir = jobs.jobDir(jobId);
@@ -150,7 +248,7 @@ export async function createServer(opts: CreateServerOptions = {}) {
     return { ok };
   });
 
-  // ---- 设置（US6 持久化） ----
+  // ---- 设置 ----
   app.get('/api/settings', async () => settings.all);
   app.put('/api/settings', async (req, reply) => {
     const patch = req.body as Record<string, unknown> | null;
@@ -166,12 +264,19 @@ export async function createServer(opts: CreateServerOptions = {}) {
       reply.code(400);
       return { ok: false, error: 'tocDepth 必须是 1-6' };
     }
+    if (patch.recentFiles !== undefined) {
+      if (!Array.isArray(patch.recentFiles) || patch.recentFiles.some((x) => typeof x !== 'string')) {
+        reply.code(400);
+        return { ok: false, error: 'recentFiles 必须是字符串数组' };
+      }
+      patch.recentFiles = (patch.recentFiles as string[]).slice(0, 10);
+    }
     settings.set(patch);
     logger.info(`settings updated: ${JSON.stringify(patch)}`);
     return settings.all;
   });
 
-  // ---- 日志（US5：人话错误 + 一键导出） ----
+  // ---- 日志 ----
   app.get('/api/log', async () => ({ lines: logger.exportText().split('\n').filter(Boolean) }));
   app.get('/api/log/export', async (_req, reply) => {
     reply.header('Content-Type', 'text/plain; charset=utf-8');
@@ -179,12 +284,11 @@ export async function createServer(opts: CreateServerOptions = {}) {
     return logger.exportText();
   });
 
-  // ---- 静态托管 renderer（M4 起也由 Electron 复用同产物） ----
+  // ---- 静态托管 renderer ----
   const staticDir = opts.staticDir ? resolve(opts.staticDir) : null;
   if (staticDir && existsSync(staticDir)) {
     await app.register(fastifyStatic, { root: staticDir });
     app.setNotFoundHandler(async (req, reply) => {
-      // SPA 回退（非 /api 路径回 index.html）
       if (req.url.startsWith('/api')) {
         reply.code(404);
         return { ok: false, error: '接口不存在' };
@@ -193,7 +297,7 @@ export async function createServer(opts: CreateServerOptions = {}) {
     });
   }
 
-  return { app, logger, settings, jobs, dataDir };
+  return { app, logger, settings, jobs, dataDir, templatesDir };
 }
 
 const isMain = process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.js');

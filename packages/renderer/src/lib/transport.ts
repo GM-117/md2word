@@ -42,6 +42,16 @@ export interface ConvertOptionsPayload {
   highlightStyle?: string;
   offline?: boolean;
   overwrite?: boolean;
+  metadata?: { title?: string; author?: string };
+  /** 模板名：'builtin-zh' | 'pandoc-default' | 用户模板名（服务端解析为路径） */
+  template?: string;
+}
+
+export interface TemplateInfo {
+  builtin: { name: string; id: string; valid: boolean } | null;
+  pandocDefault: { name: string; id: string };
+  user: Array<{ name: string; valid: boolean; missingStyles: string[]; error?: string }>;
+  defaultTemplate: string;
 }
 
 export type Settings = Record<string, unknown>;
@@ -57,6 +67,12 @@ export interface ApiTransport {
   cancel(): Promise<void>;
   /** 打开产物文件（系统默认程序）/ 所在文件夹 */
   open(jobId: string, name: string, folder: boolean): Promise<boolean>;
+  /** 模板列表（含校验状态） */
+  listTemplates(): Promise<TemplateInfo>;
+  /** 导入模板；无效模板被拒并返回缺失样式 */
+  uploadTemplate(file: File): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }>;
+  /** 删除用户模板 */
+  deleteTemplate(name: string): Promise<boolean>;
 }
 
 export class HttpTransport implements ApiTransport {
@@ -109,6 +125,26 @@ export class HttpTransport implements ApiTransport {
     if (!r.ok) return false;
     const body = (await r.json()) as { ok: boolean };
     return body.ok;
+  }
+
+  async listTemplates(): Promise<TemplateInfo> {
+    const r = await fetch('/api/templates');
+    if (!r.ok) throw new Error(`templates HTTP ${r.status}`);
+    return r.json() as Promise<TemplateInfo>;
+  }
+
+  async uploadTemplate(file: File): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const r = await fetch('/api/templates', { method: 'POST', body: form });
+    const body = (await r.json()) as { ok: boolean; name?: string; error?: string; missingStyles?: string[] };
+    if (!r.ok) return { ok: false, error: body.error ?? `HTTP ${r.status}`, missingStyles: body.missingStyles };
+    return body;
+  }
+
+  async deleteTemplate(name: string): Promise<boolean> {
+    const r = await fetch(`/api/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    return r.ok;
   }
 }
 

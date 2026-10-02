@@ -99,6 +99,8 @@ export interface RunOptions {
 export interface RunResult {
   code: number | null;
   stdout: string;
+  /** stdout 原始字节（二进制输出如 --print-default-data-file 必须用这个，utf8 解码会损坏 zip） */
+  stdoutBytes: Buffer;
   stderr: string;
   /** 因超时被 kill */
   timedOut: boolean;
@@ -135,14 +137,14 @@ export function runPandoc(binPath: string, args: string[], opts: RunOptions = {}
     });
 
     let stdout = '';
+    const stdoutChunks: Buffer[] = [];
     let stderr = '';
     let timedOut = false;
     let cancelled = false;
     let settled = false;
 
-    child.stdout!.setEncoding('utf8');
+    child.stdout!.on('data', (d: Buffer) => { stdoutChunks.push(d); stdout += d.toString('utf8'); });
     child.stderr!.setEncoding('utf8');
-    child.stdout!.on('data', (d: string) => { stdout += d; });
     child.stderr!.on('data', (d: string) => { stderr += d; });
 
     const timer = opts.timeoutMs
@@ -160,6 +162,7 @@ export function runPandoc(binPath: string, args: string[], opts: RunOptions = {}
       resolveRun({
         code,
         stdout,
+        stdoutBytes: Buffer.concat(stdoutChunks),
         stderr,
         timedOut,
         cancelled,

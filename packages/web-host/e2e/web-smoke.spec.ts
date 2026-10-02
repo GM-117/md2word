@@ -70,4 +70,34 @@ test.describe('M2 Web 冒烟', () => {
     const text = readFileSync(await download.path(), 'utf8');
     expect(text).toContain('[INFO]');
   });
+
+  test('M3：模板面板——内置中文模板可选，导入无效模板被拒并提示', async ({ page }) => {
+    await page.goto('/');
+    // 内置模板在下拉中
+    const tplSelect = page.locator('.panel', { hasText: '文档模板' }).locator('select');
+    await expect(tplSelect.locator('option', { hasText: '内置中文模板' })).toHaveCount(1);
+    // 导入无效 .docx → 提示缺失样式
+    const bad = join(REPO_ROOT, 'packages', 'web-host', 'e2e', 'fixtures', 'broken-template.docx');
+    await page.locator('input[type=file][accept=".docx"]').setInputFiles(bad);
+    await expect(page.locator('.panel', { hasText: '文档模板' }).locator('.err')).toContainText('缺少必需样式', { timeout: 10_000 });
+  });
+
+  test('M3：元数据面板——标题/作者写入 docx 核心属性', async ({ page }) => {
+    await page.goto('/');
+    const metaPanel = page.locator('.panel', { hasText: '元数据' });
+    await metaPanel.locator('input').first().fill('端到端元数据标题');
+    await metaPanel.locator('input').nth(1).fill('端到端作者');
+    await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH, BASIC_IMG]);
+    const row = page.locator('.row');
+    await expect(row.locator('.badge')).toContainText('成功', { timeout: 30_000 });
+    // 下载并检查 dc:title / dc:creator
+    const downloadPromise = page.waitForEvent('download');
+    await row.getByRole('link', { name: '下载 .docx' }).click();
+    const download = await downloadPromise;
+    const { unzipSync } = await import('fflate');
+    const files = unzipSync(new Uint8Array(readFileSync(await download.path())));
+    const coreXml = new TextDecoder().decode(files['docProps/core.xml']);
+    expect(coreXml).toContain('<dc:title>端到端元数据标题</dc:title>');
+    expect(coreXml).toContain('端到端作者');
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { transport, type ConvertItemResult, type ConvertOptionsPayload, type Health } from './lib/transport';
+import { transport, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo } from './lib/transport';
 
 interface RowState {
   key: string;
@@ -18,6 +18,9 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [log, setLog] = useState<string[] | null>(null);
+  const [templates, setTemplates] = useState<TemplateInfo | null>(null);
+  const [templateMsg, setTemplateMsg] = useState<string | null>(null);
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
 
   const [options, setOptions] = useState<ConvertOptionsPayload>({
     toc: false,
@@ -26,11 +29,20 @@ export function App() {
     highlightStyle: 'pygments',
     offline: false,
     overwrite: false,
+    template: 'builtin-zh',
+    metadata: { title: '', author: '' },
   });
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  // 启动：健康检查 + 恢复持久化设置（US6）
+  const refreshTemplates = useCallback(() => {
+    transport.listTemplates().then((t) => {
+      setTemplates(t);
+      setOptions((prev) => ({ ...prev, template: (t.defaultTemplate as string) ?? prev.template }));
+    }).catch(() => undefined);
+  }, []);
+
+  // 启动：健康检查 + 恢复持久化设置（US6）+ 模板列表
   useEffect(() => {
     transport.health()
       .then(setHealth)
@@ -43,13 +55,31 @@ export function App() {
         highlightStyle: typeof s.highlightStyle === 'string' ? s.highlightStyle : prev.highlightStyle,
         offline: s.offline === true,
         overwrite: s.overwrite === true,
+        template: typeof s.defaultTemplate === 'string' ? s.defaultTemplate : prev.template,
+        metadata: {
+          title: typeof s.metaTitle === 'string' ? s.metaTitle : '',
+          author: typeof s.metaAuthor === 'string' ? s.metaAuthor : '',
+        },
       })))
       .catch(() => undefined);
-  }, []);
+    transport.getSettings().then((s) => {
+      if (Array.isArray(s.recentFiles)) setRecentFiles(s.recentFiles as string[]);
+    }).catch(() => undefined);
+    refreshTemplates();
+  }, [refreshTemplates]);
 
   const patchOptions = useCallback((patch: Partial<ConvertOptionsPayload>) => {
     setOptions((prev) => ({ ...prev, ...patch }));
-    void transport.saveSettings(patch).catch(() => undefined);
+    void transport.saveSettings(patch as Record<string, unknown>).catch(() => undefined);
+  }, []);
+
+  const patchMeta = useCallback((patch: { title?: string; author?: string }) => {
+    setOptions((prev) => ({ ...prev, metadata: { ...prev.metadata, ...patch } }));
+    // 元数据即时保存（防抖语义由输入节奏决定；服务端合并幂等）
+    const settingsPatch: Record<string, unknown> = {};
+    if (patch.title !== undefined) settingsPatch.metaTitle = patch.title;
+    if (patch.author !== undefined) settingsPatch.metaAuthor = patch.author;
+    void transport.saveSettings(settingsPatch).catch(() => undefined);
   }, []);
 
   const convertFiles = useCallback(async (fileList: FileList | File[]) => {
@@ -62,16 +92,20 @@ export function App() {
     }
     setBusy(true);
     setLog(null);
-    // 先把当前选项完整落盘，避免保存与转换请求的竞态
-    try { await transport.saveSettings({ ...optionsRef.current }); } catch { /* 保存失败不阻断转换 */ }
+    try { await transport.saveSettings({ ...optionsRef.current, metaTitle: optionsRef.current.metadata?.title ?? '', metaAuthor: optionsRef.current.metadata?.author ?? '' }); } catch { /* 保存失败不阻断转换 */ }
     const newKeys = mdFiles.map((f) => ({ key: `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: f.name }));
     setRows((prev) => [
       ...prev,
       ...newKeys.map((k) => ({ ...k, status: 'converting' as const })),
     ]);
+    // 最近文件（US6/P1：成功失败都记录，上限 10）
+    setRecentFiles((prev) => {
+      const next = [...mdFiles.map((f) => f.name), ...prev.filter((n) => !mdFiles.some((f) => f.name === n))].slice(0, 10);
+      void transport.saveSettings({ recentFiles: next }).catch(() => undefined);
+      return next;
+    });
 
     try {
-      // 一次作业提交全部文件：.md 转换 + 资源文件（图片等）供相对路径引用
       const job = await transport.convert([...mdFiles, ...resourceFiles], optionsRef.current);
       setRows((prev) => prev.map((r) => {
         const idx = newKeys.findIndex((k) => k.key === r.key);
@@ -95,6 +129,17 @@ export function App() {
     }
     setBusy(false);
   }, []);
+
+  const importTemplate = useCallback(async (file: File) => {
+    setTemplateMsg(null);
+    const res = await transport.uploadTemplate(file);
+    if (res.ok) {
+      setTemplateMsg(`模板“${res.name}”导入成功`);
+      refreshTemplates();
+    } else {
+      setTemplateMsg(res.error ?? '模板导入失败');
+    }
+  }, [refreshTemplates]);
 
   const openResult = useCallback(async (row: RowState, folder: boolean) => {
     if (!row.jobId || !row.result) return;
@@ -120,6 +165,13 @@ export function App() {
         </div>
       </header>
 
+      {recentFiles.length > 0 && (
+        <div className="recent">
+          <span className="recent-label">最近文件：</span>
+          {recentFiles.slice(0, 6).map((n) => <span key={n} className="recent-chip" title={n}>{n}</span>)}
+        </div>
+      )}
+
       <div className="layout">
         <section className="left">
           <div
@@ -133,13 +185,13 @@ export function App() {
             }}
           >
             <p className="dropzone-main">把 .md 拖到这里</p>
-            <p className="dropzone-sub">或</p>
+            <p className="dropzone-sub">可连同图片资源一起拖入；或</p>
             <label className="button primary">
               选择文件（可多选）
               <input
                 type="file"
                 multiple
-                accept=".md,.markdown,.mdown,.mkd"
+                accept=".md,.markdown,.mdown,.mkd,image/*"
                 onChange={(e) => { if (e.target.files) void convertFiles(e.target.files); e.target.value = ''; }}
               />
             </label>
@@ -178,6 +230,62 @@ export function App() {
               覆盖同名输出
             </label>
             <p className="hint">选项改动即时生效并保存（下次打开自动恢复）</p>
+          </div>
+
+          <div className="panel">
+            <h2>文档模板</h2>
+            <label className="opt" style={{ justifyContent: 'space-between' }}>
+              模板
+              <select
+                value={options.template}
+                onChange={(e) => patchOptions({ template: e.target.value })}
+              >
+                {templates?.builtin && <option value={templates.builtin.id}>{templates.builtin.name}</option>}
+                <option value="pandoc-default">{templates?.pandocDefault.name ?? 'pandoc 默认样式'}</option>
+                {templates?.user.filter((t) => t.valid).map((t) => (
+                  <option key={t.name} value={t.name}>{t.name}（自定义）</option>
+                ))}
+              </select>
+            </label>
+            <label className="opt">
+              <span className="button">
+                导入 reference.docx 模板
+                <input
+                  type="file"
+                  accept=".docx"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importTemplate(f);
+                    e.target.value = '';
+                  }}
+                />
+              </span>
+            </label>
+            {templateMsg && <p className={templateMsg.includes('成功') ? 'hint' : 'err'}>{templateMsg}</p>}
+          </div>
+
+          <div className="panel">
+            <h2>元数据（可选）</h2>
+            <p className="hint">填写后将写入 Word 文档属性；留空则使用 md 内 YAML front matter（若有）。</p>
+            <label className="opt meta">
+              标题
+              <input
+                type="text"
+                value={options.metadata?.title ?? ''}
+                placeholder="文档标题"
+                onChange={(e) => patchMeta({ title: e.target.value })}
+              />
+            </label>
+            <label className="opt meta">
+              作者
+              <input
+                type="text"
+                value={options.metadata?.author ?? ''}
+                placeholder="作者名"
+                onChange={(e) => patchMeta({ author: e.target.value })}
+              />
+            </label>
           </div>
         </section>
 
