@@ -9,6 +9,8 @@ declare global {
         entries: Array<{ name: string; path?: string; bytes?: Uint8Array }>,
         options: Record<string, unknown>,
       ): Promise<{ jobId: string; items: Array<{ ok: boolean; outputPath?: string }> }>;
+      saveSettings(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+      getSettings(): Promise<Record<string, unknown>>;
     };
   }
 }

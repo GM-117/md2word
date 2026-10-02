@@ -153,16 +153,21 @@ async function createWindow(): Promise<void> {
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
- * md2word://download/<jobId>/<name> 与 md2word://log/export 的承载：
- * 返回 attachment 响应 → Chromium 走下载管线（页面不导航）→ Electron 默认弹出原生保存对话框。
- * 下载白名单 = 作业注册表登记过的产物（registry 解析失败 → 404）。
+ * md2word://download/<jobId>/<name> 与 md2word://log/export 的承载。
+ * 一律返回 attachment 响应（页面永不导航）：登记产物 → 文件流；
+ * 未登记/非法 → 空 attachment，由 will-download 闸门取消（D25：若返回 404 裸响应，
+ * Chromium 会把页面导航到错误文本页）。
  */
 function registerResourceProtocol(): void {
+  const rejected = () =>
+    new Response(new Uint8Array(0), {
+      status: 200,
+      headers: { 'content-type': 'text/plain', 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent('rejected.txt')}` },
+    });
   protocol.handle('md2word', (request) => {
     const resource = parseResourceUrl(request.url);
-    if (!resource) return new Response('bad request', { status: 400 });
     const svc = services;
-    if (!svc) return new Response('not ready', { status: 503 });
+    if (!resource || !svc) return rejected();
     try {
       if (resource.kind === 'log') {
         return new Response(svc.logger.exportText(), {
@@ -175,7 +180,7 @@ function registerResourceProtocol(): void {
       const output = svc.registry.resolveByBasename(resource.jobId, resource.name);
       if (!output) {
         svc.logger.warn(`download refused: 未登记的产物 ${resource.jobId}/${resource.name}`);
-        return new Response('not found', { status: 404 });
+        return rejected();
       }
       svc.logger.info(`download via md2word://: ${output}`);
       return new Response(readFileSync(output), {
@@ -186,7 +191,7 @@ function registerResourceProtocol(): void {
       });
     } catch (err) {
       svc.logger.error(`resource handling failed: ${err instanceof Error ? err.message : String(err)}`);
-      return new Response('internal error', { status: 500 });
+      return rejected();
     }
   });
 }
@@ -209,14 +214,21 @@ async function handleLogExport(): Promise<void> {
 }
 
 /**
- * md2word:// 下载的落盘策略：
- * - 默认（生产）：不干预，Electron 弹原生保存对话框（docs: without setSavePath it usually prompts）。
- * - MD2WORD_DOWNLOAD_DIR（E2E）：确定性落盘到该目录，避免原生对话框阻塞自动化。
+ * md2word:// 下载的落盘策略与安全闸门：
+ * - 未登记的产物（伪造/失效链接）：preventDefault 取消下载——页面不跳转、不产生文件（D25）；
+ * - MD2WORD_DOWNLOAD_DIR（E2E）：确定性落盘到该目录，避免原生对话框阻塞自动化；
+ * - 默认（生产）：不干预，Electron 弹原生保存对话框。
  */
 function registerDownloadBehavior(): void {
   const e2eDir = process.env.MD2WORD_DOWNLOAD_DIR;
-  session.defaultSession.on('will-download', (_event, item) => {
-    if (!parseResourceUrl(item.getURL())) return; // 非 md2word 资源走默认行为
+  session.defaultSession.on('will-download', (event, item) => {
+    const resource = parseResourceUrl(item.getURL());
+    if (!resource) return; // 非 md2word 资源走默认行为
+    if (resource.kind === 'download' && !services?.registry.resolveByBasename(resource.jobId, resource.name)) {
+      services?.logger.warn(`download cancelled (will-download): 未登记的产物 ${resource.jobId}/${resource.name}`);
+      event.preventDefault();
+      return;
+    }
     services?.logger.info(`will-download: ${item.getFilename()}`);
     if (e2eDir) {
       item.setSavePath(join(e2eDir, `${Date.now()}-${item.getFilename()}`));
