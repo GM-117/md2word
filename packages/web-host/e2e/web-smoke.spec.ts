@@ -82,6 +82,23 @@ test.describe('M2 Web 冒烟', () => {
     await expect(page.locator('.panel', { hasText: '文档模板' }).locator('.err')).toContainText('缺少必需样式', { timeout: 10_000 });
   });
 
+  test('M3：模板选择真实生效——切到 pandoc-default 后产物不含中文字体', async ({ page }) => {
+    await page.goto('/');
+    const tplSelect = page.locator('.panel', { hasText: '文档模板' }).locator('select');
+    await tplSelect.selectOption('pandoc-default');
+    await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH, BASIC_IMG]);
+    const row = page.locator('.row');
+    await expect(row.locator('.badge')).toContainText('成功', { timeout: 30_000 });
+    const downloadPromise = page.waitForEvent('download');
+    await row.getByRole('link', { name: '下载 .docx' }).click();
+    const download = await downloadPromise;
+    const { unzipSync } = await import('fflate');
+    const stylesXml = new TextDecoder().decode(unzipSync(new Uint8Array(readFileSync(await download.path())))['word/styles.xml']);
+    expect(stylesXml).not.toContain('SimSun');
+    // 还原默认模板
+    await tplSelect.selectOption('builtin-zh');
+  });
+
   test('M3：元数据面板——标题/作者写入 docx 核心属性', async ({ page }) => {
     await page.goto('/');
     const metaPanel = page.locator('.panel', { hasText: '元数据' });

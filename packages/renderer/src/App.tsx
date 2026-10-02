@@ -70,7 +70,14 @@ export function App() {
 
   const patchOptions = useCallback((patch: Partial<ConvertOptionsPayload>) => {
     setOptions((prev) => ({ ...prev, ...patch }));
-    void transport.saveSettings(patch as Record<string, unknown>).catch(() => undefined);
+    // 模板选择对应服务端的 defaultTemplate 设置；其余键按原名保存
+    const { template, ...rest } = patch;
+    if (template !== undefined) {
+      void transport.saveSettings({ defaultTemplate: template }).catch(() => undefined);
+    }
+    if (Object.keys(rest).length > 0) {
+      void transport.saveSettings(rest as Record<string, unknown>).catch(() => undefined);
+    }
   }, []);
 
   const patchMeta = useCallback((patch: { title?: string; author?: string }) => {
@@ -92,7 +99,20 @@ export function App() {
     }
     setBusy(true);
     setLog(null);
-    try { await transport.saveSettings({ ...optionsRef.current, metaTitle: optionsRef.current.metadata?.title ?? '', metaAuthor: optionsRef.current.metadata?.author ?? '' }); } catch { /* 保存失败不阻断转换 */ }
+    // 转换前把当前选项完整落盘（白名单键，避免垃圾键写入 settings），并消除保存与转换的竞态
+    try {
+      await transport.saveSettings({
+        toc: optionsRef.current.toc ?? false,
+        tocDepth: optionsRef.current.tocDepth ?? 3,
+        numberSections: optionsRef.current.numberSections ?? false,
+        highlightStyle: optionsRef.current.highlightStyle ?? 'pygments',
+        offline: optionsRef.current.offline ?? false,
+        overwrite: optionsRef.current.overwrite ?? false,
+        defaultTemplate: optionsRef.current.template ?? 'builtin-zh',
+        metaTitle: optionsRef.current.metadata?.title ?? '',
+        metaAuthor: optionsRef.current.metadata?.author ?? '',
+      });
+    } catch { /* 保存失败不阻断转换 */ }
     const newKeys = mdFiles.map((f) => ({ key: `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: f.name }));
     setRows((prev) => [
       ...prev,
@@ -106,7 +126,10 @@ export function App() {
     });
 
     try {
-      const job = await transport.convert([...mdFiles, ...resourceFiles], optionsRef.current);
+      // options 只传转换语义键：template 已换名为 defaultTemplate 设置，由服务端解析模板路径
+      const { template: _tpl, ...convertOptions } = optionsRef.current;
+      void _tpl;
+      const job = await transport.convert([...mdFiles, ...resourceFiles], convertOptions);
       setRows((prev) => prev.map((r) => {
         const idx = newKeys.findIndex((k) => k.key === r.key);
         if (idx === -1) return r;
