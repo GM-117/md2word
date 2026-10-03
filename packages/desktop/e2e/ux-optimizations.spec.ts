@@ -97,7 +97,7 @@ test.describe('UX 优化（桌面端）', () => {
     expect(win.url()).toContain('app://bundle/index.html');
   });
 
-  test('U3 最近文件点击重新转换：默认覆盖保护下先失败，勾选覆盖后成功', async () => {
+  test.skip('U3 最近文件点击重新转换：默认覆盖保护下先失败，勾选覆盖后成功（UI 暂时隐藏）', async () => {
     const srcDir = join(workspace, 'reconvert');
     mkdirSync(srcDir, { recursive: true });
     const mdPath = join(srcDir, '重转测试.md');
@@ -123,7 +123,7 @@ test.describe('UX 优化（桌面端）', () => {
     await win.locator('.opt', { hasText: '覆盖同名输出' }).locator('input').click();
   });
 
-  test('U5 最近文件一键清空：确认后清空并持久化（重启窗口仍为空）', async () => {
+  test.skip('U5 最近文件一键清空：确认后清空并持久化（重启窗口仍为空）（UI 暂时隐藏）', async () => {
     const srcDir = join(workspace, 'clear-ui');
     mkdirSync(srcDir, { recursive: true });
     const mdPath = join(srcDir, '清空测试.md');
@@ -140,5 +140,20 @@ test.describe('UX 优化（桌面端）', () => {
     await win.reload();
     await win.waitForLoadState('domcontentloaded');
     await expect(win.locator('.recent-chip')).toHaveCount(0, { timeout: 15_000 });
+  });
+
+  test('U7 模板闭环：下载当前模板 → 原样导入 → 导入成功（D32）', async () => {
+    const downloads = join(workspace, 'downloads');
+    const before = readdirSync(downloads).length;
+    await win.locator('.tpl-export').dispatchEvent('click');
+    await expect
+      .poll(async () => readdirSync(downloads).filter((f) => f.endsWith('.docx')).length, { timeout: 15_000 })
+      .toBeGreaterThan(before);
+    const file = readdirSync(downloads).filter((f) => f.endsWith('.docx')).map((f) => join(downloads, f)).at(-1)!;
+    // 用户工作流闭环：下载的模板原样导回（Word 修改后再导入同路径），必须被接受
+    await win.locator('input[type=file][accept=".docx"]').setInputFiles(file);
+    await expect(
+      win.locator('.panel', { hasText: '文档模板' }).locator('.tpl-msg'),
+    ).toContainText('导入成功', { timeout: 10_000 });
   });
 });

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { strToU8, unzipSync, zipSync } from 'fflate';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDocx } from './validate.js';
@@ -57,12 +58,74 @@ export function validateTemplate(templatePath: string): TemplateValidation {
     return { ok: false, missingStyles: [], error: '模板缺少 word/styles.xml' };
   }
   const missing: string[] = [];
+  // 归一化匹配（D32）：Word 保存后会把内置样式名写成小写规范名（heading 1）、
+  // styleId 重写为数字、自定义样式名可能去空格（SourceCode）。
+  // 因此以「name 去空格 + 小写」归一化比对为主，styleId 精确匹配为辅。
+  const styleIds = new Set<string>();
+  for (const m of stylesXml.matchAll(/w:styleId="([^"]+)"/g)) {
+    const id = m[1];
+    if (id) styleIds.add(id);
+  }
+  const normNames = new Set<string>();
+  for (const m of stylesXml.matchAll(/<w:name w:val="([^"]+)"/g)) {
+    const name = m[1];
+    if (name) normNames.add(name.toLowerCase().replace(/\s+/g, ''));
+  }
   for (const s of REQUIRED_STYLES) {
-    const byId = new RegExp(`w:styleId="${s.id}"`).test(stylesXml);
-    const byName = new RegExp(`<w:name w:val="${s.name}"`).test(stylesXml);
-    if (!byId && !byName) missing.push(s.name);
+    if (styleIds.has(s.id)) continue;
+    if (normNames.has(s.name.toLowerCase().replace(/\s+/g, ''))) continue;
+    missing.push(s.name);
   }
   return { ok: missing.length === 0, missingStyles: missing };
+}
+
+/**
+ * 补齐 docx 模板缺失的必需样式：从 donor 模板提取对应 <w:style> 块注入 styles.xml。
+ * 用途（D32）：pandoc 原生默认模板不含 Source Code 样式（转换时动态创建），
+ * 作为「可下载→可再导入」的模板导出时必须补齐，否则会被 validateTemplate 拒绝。
+ * 无缺失或 donor 不可用时原样返回。
+ */
+export function augmentTemplateStyles(
+  docxBytes: Uint8Array,
+  donorDocxPath: string,
+  required: readonly { id: string; name: string }[] = REQUIRED_STYLES,
+): Uint8Array {
+  try {
+    const files = unzipSync(docxBytes);
+    const stylesXml = files['word/styles.xml'] ? new TextDecoder().decode(files['word/styles.xml']) : '';
+    if (!stylesXml) return docxBytes;
+    const donorBytes = readFileSync(donorDocxPath);
+    const donorXml = new TextDecoder().decode(unzipSync(new Uint8Array(donorBytes))['word/styles.xml'] ?? new Uint8Array());
+    if (!donorXml) return docxBytes;
+
+    const ids = new Set<string>();
+    for (const m of stylesXml.matchAll(/w:styleId="([^"]+)"/g)) {
+      const id = m[1];
+      if (id) ids.add(id);
+    }
+    const normNames = new Set<string>();
+    for (const m of stylesXml.matchAll(/<w:name w:val="([^"]+)"/g)) {
+      const name = m[1];
+      if (name) normNames.add(name.toLowerCase().replace(/\s+/g, ''));
+    }
+
+    const targetHasSimSun = stylesXml.includes('SimSun');
+    let next = stylesXml;
+    for (const s of required) {
+      if (ids.has(s.id) || normNames.has(s.name.toLowerCase().replace(/\s+/g, ''))) continue;
+      let block = new RegExp(`<w:style [^>]*w:styleId="${s.id}"[\\s\\S]*?</w:style>`).exec(donorXml)?.[0];
+      if (!block) continue;
+      if (!targetHasSimSun) {
+        block = block.replace(/\s*w:eastAsia="SimSun"/g, '');
+      }
+      next = next.replace('</w:styles>', `${block}\n</w:styles>`);
+      ids.add(s.id);
+    }
+    if (next === stylesXml) return docxBytes;
+    return zipSync({ ...files, 'word/styles.xml': strToU8(next) }, { level: 6 });
+  } catch {
+    return docxBytes;
+  }
 }
 
 /** 内置中文模板路径（M3 生成）；不存在返回 null（回退 pandoc 默认样式） */

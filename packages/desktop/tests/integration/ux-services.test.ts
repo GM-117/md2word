@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
 import { DEFAULT_SETTINGS, type KvStore } from '../../src/main/services/settings.js';
+import { validateTemplate } from '@md2word/core';
 import { summarizeTemplate } from '../../src/main/services/templates.js';
 
 /**
@@ -66,6 +67,21 @@ describe('模板样式概览（summarizeTemplate / describeTemplate）', () => {
     const bad = join(workspace, 'bad.docx');
     writeFileSync(bad, 'not a zip');
     expect(summarizeTemplate(bad)).toEqual({});
+  });
+});
+
+describe('pandoc-default 导出闭环（D32）', () => {
+  it('导出的 pandoc 默认模板通过 validateTemplate（含注入的 Source Code）', async () => {
+    const resolved = await services.templates.resolveTemplatePath('pandoc-default');
+    expect(resolved).toBeTruthy();
+    expect(validateTemplate(resolved!.path)).toEqual({ ok: true, missingStyles: [] });
+  });
+
+  it('导出 → 再导入闭环：add() 接受导出的文件', async () => {
+    const resolved = await services.templates.resolveTemplatePath('pandoc-default');
+    const r = services.templates.add('pandoc 自定义.docx', new Uint8Array(readFileSync(resolved!.path)));
+    expect(r).toMatchObject({ ok: true, name: 'pandoc 自定义' });
+    expect(services.templates.list().user.map((t) => t.name)).toContain('pandoc 自定义');
   });
 });
 

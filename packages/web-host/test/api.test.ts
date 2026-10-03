@@ -6,7 +6,7 @@ import { createServer } from '../src/server.js';
 import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
-let jobs: ReturnType<typeof createServer>['jobs'];
+let jobs: Awaited<ReturnType<typeof createServer>>['jobs'];
 let dataDir: string;
 
 beforeAll(async () => {
@@ -68,6 +68,25 @@ describe('GET /api/templates/export/:id', () => {
   it('未知模板 → 404', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/templates/export/nope.docx' });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('闭环：导出的默认模板原样再导入应通过校验（D32）', async () => {
+    const exp = await app.inject({ method: 'GET', url: '/api/templates/export/pandoc-default' });
+    expect(exp.statusCode).toBe(200);
+    const boundary = `----roundtrip${Math.random().toString(36).slice(2)}`;
+    const payload = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pandoc 默认样式.docx"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      exp.rawPayload,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/templates',
+      payload,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, name: 'pandoc 默认样式' });
   });
 });
 

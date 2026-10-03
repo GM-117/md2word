@@ -159,8 +159,9 @@ export function App() {
   const [log, setLog] = useState<string[] | null>(null);
   const [templates, setTemplates] = useState<TemplateInfo | null>(null);
   const [templateMsg, setTemplateMsg] = useState<string | null>(null);
-  const [recentFiles, setRecentFiles] = useState<string[]>([]);
-  const [recentPaths, setRecentPaths] = useState<Record<string, string>>({});
+  // 最近文件功能暂时隐藏（可按需恢复）
+  // const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  // const [recentPaths, setRecentPaths] = useState<Record<string, string>>({});
   const [tplSummary, setTplSummary] = useState<TemplateStyleSummary | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -215,12 +216,14 @@ export function App() {
         },
       })))
       .catch(() => undefined);
+    /* 最近文件暂时隐藏（可按需恢复）
     transport.getSettings().then((s) => {
       if (Array.isArray(s.recentFiles)) setRecentFiles(s.recentFiles as string[]);
       if (isDesktop && s.recentPaths && typeof s.recentPaths === 'object') {
         setRecentPaths(s.recentPaths as Record<string, string>);
       }
     }).catch(() => undefined);
+    */
     refreshTemplates();
   }, [refreshTemplates]);
 
@@ -285,12 +288,13 @@ export function App() {
       ...newKeys.map((k) => ({ ...k, status: 'converting' as const })),
       ...prev,
     ]);
-    // 最近文件（US6/P1：成功失败都记录，上限 10）
+    /* 最近文件暂时隐藏（可按需恢复）
     setRecentFiles((prev) => {
       const next = [...mdFiles.map((f) => f.name), ...prev.filter((n) => !mdFiles.some((f) => f.name === n))].slice(0, 10);
       void transport.saveSettings({ recentFiles: next }).catch(() => undefined);
       return next;
     });
+    */
 
     try {
       // options 只传转换语义键：template 已换名为 defaultTemplate 设置，由服务端解析模板路径
@@ -348,6 +352,7 @@ export function App() {
     }
   }, [showToast]);
 
+  /* 最近文件功能暂时隐藏（可按需恢复）
   // 删除单条最近文件记录（同步持久化到设置）
   const removeRecent = useCallback((name: string) => {
     setRecentFiles((prev) => {
@@ -392,6 +397,7 @@ export function App() {
       if (s.recentPaths && typeof s.recentPaths === 'object') setRecentPaths(s.recentPaths as Record<string, string>);
     }).catch(() => undefined);
   }, [busy]);
+  */
 
   const doneCount = rows.filter((r) => r.status === 'done').length;
 
@@ -430,6 +436,7 @@ export function App() {
         </div>
       </header>
 
+      {/* 最近文件功能暂时隐藏（可按需取消注释恢复）
       {recentFiles.length > 0 && (
         <div className="recent">
           <span className="recent-label">最近文件：</span>
@@ -459,6 +466,7 @@ export function App() {
           <button type="button" className="recent-clear" title="清空全部最近文件记录（不影响已转换的文件）" onClick={() => clearRecent()}>清空</button>
         </div>
       )}
+      */}
 
       <div className="layout">
         <section className="left">
@@ -502,6 +510,14 @@ export function App() {
               <input type="checkbox" checked={options.numberSections} onChange={(e) => patchOptions({ numberSections: e.target.checked })} />
               章节编号
             </label>
+            <label className="opt">
+              <input type="checkbox" checked={options.offline} onChange={(e) => patchOptions({ offline: e.target.checked })} />
+              离线模式（不抓取远程图片）
+            </label>
+            <label className="opt">
+              <input type="checkbox" checked={options.overwrite} onChange={(e) => patchOptions({ overwrite: e.target.checked })} />
+              覆盖同名输出
+            </label>
             <label className="opt field">
               <span>代码块高亮风格</span>
               <select value={options.highlightStyle} onChange={(e) => patchOptions({ highlightStyle: e.target.value })}>
@@ -513,14 +529,6 @@ export function App() {
               <p className="hint">仅影响标注了语言的代码块（如 ```js 围栏）的语法高亮配色；行内代码与正文文字不受影响。</p>
               <HLPreview style={String(options.highlightStyle)} />
             </details>
-            <label className="opt">
-              <input type="checkbox" checked={options.offline} onChange={(e) => patchOptions({ offline: e.target.checked })} />
-              离线模式（不抓取远程图片）
-            </label>
-            <label className="opt">
-              <input type="checkbox" checked={options.overwrite} onChange={(e) => patchOptions({ overwrite: e.target.checked })} />
-              覆盖同名输出
-            </label>
             <p className="hint">选项改动即时生效并保存（下次打开自动恢复）</p>
           </div>
 

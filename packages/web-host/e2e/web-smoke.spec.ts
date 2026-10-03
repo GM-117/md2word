@@ -69,7 +69,7 @@ test.describe('M2 Web 冒烟', () => {
     await expect(page.locator('.foot').getByRole('link', { name: '导出日志' })).toBeVisible();
   });
 
-  test('US6：最近文件——单条删除并持久化', async ({ page }) => {
+  test.skip('US6：最近文件——单条删除并持久化（UI 暂时隐藏）', async ({ page }) => {
     await page.goto('/');
     // 转换一次确保产生记录（前面用例已写入时命中同一 chip，幂等）
     await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH]);
@@ -82,7 +82,7 @@ test.describe('M2 Web 冒烟', () => {
     await expect(page.locator('.recent-chip', { hasText: 'basic-zh.md' })).toHaveCount(0);
   });
 
-  test('US6：最近文件——一键清空（确认后清空并持久化）', async ({ page }) => {
+  test.skip('US6：最近文件——一键清空（确认后清空并持久化）（UI 暂时隐藏）', async ({ page }) => {
     await page.goto('/');
     await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH]);
     await expect(page.locator('.recent-chip').first()).toBeVisible();
@@ -96,11 +96,22 @@ test.describe('M2 Web 冒烟', () => {
 
   test('M3：模板文件下载（内置中文模板，合法 zip）', async ({ page }) => {
     await page.goto('/');
+    const tplSelect = page.locator('.panel', { hasText: '文档模板' }).locator('select');
+    await tplSelect.selectOption('builtin-zh');
     const downloadPromise = page.waitForEvent('download');
     await page.locator('.tpl-export').click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('内置中文模板');
     expect(readFileSync(await download.path()).subarray(0, 2).toString()).toBe('PK');
+    // 闭环：把下载的模板原样导回（D32：导出件必须能通过导入校验）
+    await page.locator('input[type=file][accept=".docx"]').setInputFiles({
+      name: download.suggestedFilename(),
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: readFileSync(await download.path()),
+    });
+    await expect(
+      page.locator('.panel', { hasText: '文档模板' }).locator('.tpl-msg'),
+    ).toContainText('导入成功', { timeout: 10_000 });
   });
 
   test('队列：最新转换结果显示在列表首位', async ({ page }) => {
@@ -128,7 +139,7 @@ test.describe('M2 Web 冒烟', () => {
     await page.goto('/');
     // 内置模板在下拉中
     const tplSelect = page.locator('.panel', { hasText: '文档模板' }).locator('select');
-    await expect(tplSelect.locator('option', { hasText: '内置中文模板' })).toHaveCount(1);
+    await expect(tplSelect.locator('option[value="builtin-zh"]')).toHaveCount(1);
     // 导入无效 .docx → 提示缺失样式
     const bad = join(REPO_ROOT, 'packages', 'web-host', 'e2e', 'fixtures', 'broken-template.docx');
     await page.locator('input[type=file][accept=".docx"]').setInputFiles(bad);

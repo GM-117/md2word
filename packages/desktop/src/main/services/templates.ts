@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { getBundledReferenceDocx, resolvePandocInfo, runPandoc, validateTemplate } from '@md2word/core';
+import { augmentTemplateStyles, getBundledReferenceDocx, resolvePandocInfo, runPandoc, validateTemplate } from '@md2word/core';
 import { unzipSync } from 'fflate';
 import type { LogBuffer } from './logger.js';
 import type { SettingsService } from './settings.js';
@@ -106,9 +106,13 @@ export class TemplateService {
     return this.builtinTemplatePath ?? getBundledReferenceDocx() ?? undefined;
   }
 
-  /** pandoc 原生模板导出缓存（pandoc-default 显式选择时使用；与 web-host 行为一致） */
+  /**
+   * pandoc 原生模板导出缓存（pandoc-default 显式选择/下载时使用）。
+   * D32：pandoc 原生默认模板缺 Source Code 样式（转换时动态创建），直接导出会被
+   * validateTemplate 拒绝——从内置中文模板注入缺失样式后再缓存（缓存名 v2 防旧缓存残留）。
+   */
   private async ensurePandocDefaultTemplate(): Promise<string> {
-    const cached = join(this.templatesDir, '.pandoc-default.docx');
+    const cached = join(this.templatesDir, '.pandoc-default-aug-v2.docx');
     if (existsSync(cached)) return cached;
     const pandoc = await resolvePandocInfo();
     if (!pandoc) throw new Error('pandoc 不可用，无法导出默认模板');
@@ -116,7 +120,9 @@ export class TemplateService {
     if (run.code !== 0 || run.stdoutBytes.length < 1000) {
       throw new Error(`导出 pandoc 默认模板失败：${run.stderr.slice(0, 200)}`);
     }
-    writeFileSync(cached, run.stdoutBytes);
+    const donor = getBundledReferenceDocx();
+    const augmented = donor ? augmentTemplateStyles(run.stdoutBytes, donor) : run.stdoutBytes;
+    writeFileSync(cached, augmented);
     return cached;
   }
 

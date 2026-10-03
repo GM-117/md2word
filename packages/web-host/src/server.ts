@@ -5,7 +5,7 @@ import { default as fastify } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { randomUUID } from 'node:crypto';
-import { HIGHLIGHT_STYLES, resolvePandocInfo, validateTemplate, getBundledReferenceDocx, type ConvertOptions, type HighlightStyle } from '@md2word/core';
+import { augmentTemplateStyles, runPandoc, HIGHLIGHT_STYLES, resolvePandocInfo, validateTemplate, getBundledReferenceDocx, type ConvertOptions, type HighlightStyle } from '@md2word/core';
 import { LogBuffer } from './lib/logger.js';
 import { SettingsStore } from './lib/settings.js';
 import { JobManager, type JobResult } from './lib/jobs.js';
@@ -42,18 +42,19 @@ export async function createServer(opts: CreateServerOptions = {}) {
   const settings = new SettingsStore(dataDir, DEFAULT_SETTINGS);
   const jobs = new JobManager(dataDir, logger);
 
-  /** pandoc 原生模板导出缓存（pandoc-default 显式选择时使用；core 层 undefined 会回退内置模板） */
+  /** pandoc 原生模板导出缓存（pandoc-default 显式选择/下载时使用；D32：注入缺失必需样式） */
   async function ensurePandocDefaultTemplate(): Promise<string> {
-    const cached = join(templatesDir, '.pandoc-default.docx');
+    const cached = join(templatesDir, '.pandoc-default-aug-v2.docx');
     if (existsSync(cached)) return cached;
     const pandoc = await resolvePandocInfo();
     if (!pandoc) throw new Error('pandoc 不可用，无法导出默认模板');
-    const { runPandoc } = await import('@md2word/core');
     const run = await runPandoc(pandoc.path, ['--print-default-data-file', 'reference.docx'], { timeoutMs: 30_000 });
     if (run.code !== 0 || run.stdoutBytes.length < 1000) {
       throw new Error(`导出 pandoc 默认模板失败：${run.stderr.slice(0, 200)}`);
     }
-    writeFileSync(cached, run.stdoutBytes);
+    const donor = getBundledReferenceDocx();
+    const augmented = donor ? augmentTemplateStyles(run.stdoutBytes, donor) : run.stdoutBytes;
+    writeFileSync(cached, augmented);
     return cached;
   }
 

@@ -2,7 +2,7 @@
 export { convertMarkdown, convertBatch, resolveOutputPath, buildPandocArgs, classifyStderr, classifyFailure } from './convert.js';
 export { SourceError } from './preprocess.js';
 export { resolvePandocInfo, resetPandocCache, runPandoc } from './pandoc.js';
-export { validateTemplate, getBundledReferenceDocx, REQUIRED_STYLES } from './template.js';
+export { validateTemplate, getBundledReferenceDocx, augmentTemplateStyles, REQUIRED_STYLES } from './template.js';
 export { openDocx, computeStats, hasNamedStyle, countStyleUsage } from './validate.js';
 export { SerialQueue } from './queue.js';
 export {
