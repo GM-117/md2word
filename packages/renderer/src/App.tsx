@@ -356,6 +356,14 @@ export function App() {
     });
   }, []);
 
+  // 一键清空最近文件记录（带确认，防止误操作；不影响已转换的产物文件）
+  const clearRecent = useCallback(() => {
+    if (recentFiles.length === 0) return;
+    if (!window.confirm(`确定清空全部 ${recentFiles.length} 条最近文件记录吗？\n（仅清除记录，不影响已转换的文件）`)) return;
+    setRecentFiles([]);
+    void transport.saveSettings({ recentFiles: [] }).catch(() => undefined);
+  }, [recentFiles]);
+
   // 最近文件点击重新转换（桌面端）：主进程按登记的源路径 + 当前选项转换，结果照常进入队列列表
   const reconvertRecent = useCallback(async (name: string) => {
     if (busy) return;
@@ -445,6 +453,7 @@ export function App() {
             </span>
           ))}
           {isDesktop && <span className="recent-hint">点击文件名可用当前选项重新转换</span>}
+          <button type="button" className="recent-clear" title="清空全部最近文件记录（不影响已转换的文件）" onClick={() => clearRecent()}>清空</button>
         </div>
       )}
 
@@ -490,12 +499,13 @@ export function App() {
               <input type="checkbox" checked={options.numberSections} onChange={(e) => patchOptions({ numberSections: e.target.checked })} />
               章节编号
             </label>
-            <label className="opt indent field">
-              <span>高亮风格</span>
+            <label className="opt field">
+              <span>代码块高亮风格</span>
               <select value={options.highlightStyle} onChange={(e) => patchOptions({ highlightStyle: e.target.value })}>
                 {HIGHLIGHT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
+            <p className="hint">仅影响标注了语言的代码块（如 ```js 围栏）的语法高亮配色；行内代码与正文文字不受影响。</p>
             <HLPreview style={String(options.highlightStyle)} />
             <label className="opt">
               <input type="checkbox" checked={options.offline} onChange={(e) => patchOptions({ offline: e.target.checked })} />
@@ -540,22 +550,39 @@ export function App() {
                 </p>
               </div>
             )}
-            <label className="opt">
-              <span className="button ghost">
-                <IconUpload />
-                导入 reference.docx 模板
-                <input
-                  type="file"
-                  accept=".docx"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void importTemplate(f);
-                    e.target.value = '';
-                  }}
-                />
-              </span>
+            <label className="tpl-import">
+              <IconUpload />
+              <span>导入 reference.docx 模板</span>
+              <input
+                type="file"
+                accept=".docx"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void importTemplate(f);
+                  e.target.value = '';
+                }}
+              />
             </label>
-            <p className="hint">reference.docx 是 Word 样式模板：可在 Word 中基于内置模板改好字体/标题/代码样式后另存导入（需保留 12 项必需样式，缺样式会被拒绝并提示）。</p>
+            <details className="tpl-styles">
+              <summary>模板需包含的 12 项必需样式</summary>
+              <ul>
+                {/* 与 core REQUIRED_STYLES 保持一致（M1 冻结清单，§5.2） */}
+                <li><code>Source Code</code> — 代码块段落</li>
+                <li><code>Verbatim Char</code> — 行内代码</li>
+                <li><code>Block Text</code> — 引用块</li>
+                <li><code>Footnote Text</code> — 脚注</li>
+                <li><code>Hyperlink</code> — 链接</li>
+                <li><code>Table</code> — 表格</li>
+                <li><code>Heading 1</code> — 一级标题</li>
+                <li><code>First Paragraph</code> — 首段</li>
+                <li><code>Body Text</code> — 正文段落</li>
+                <li><code>Compact</code> — 紧凑列表段落</li>
+                <li><code>Image Caption</code> — 图片题注</li>
+                <li><code>Table Caption</code> — 表格题注</li>
+              </ul>
+              <p className="hint">在 Word 中打开模板 →「样式」窗格逐项确认存在；建议直接基于内置中文模板或 pandoc 默认模板修改后另存。</p>
+            </details>
+            <p className="hint">reference.docx 是 Word 样式模板：可在 Word 中基于内置模板改好字体/标题/代码样式后另存导入（缺上述任一样式会被拒绝并提示缺哪些）。</p>
             {templateMsg && <p className={`tpl-msg ${templateMsg.includes('成功') ? 'hint' : 'err'}`}>{templateMsg}</p>}
           </div>
 

@@ -69,12 +69,12 @@ test.describe('UX 优化（桌面端）', () => {
     const preview = win.locator('.hl-preview');
     await expect(preview).toBeVisible();
     const bgBefore = await preview.evaluate((el) => getComputedStyle(el).backgroundColor);
-    await win.locator('.opt', { hasText: '高亮风格' }).locator('select').selectOption('zenburn');
+    await win.locator('.opt', { hasText: '代码块高亮风格' }).locator('select').selectOption('zenburn');
     const bgAfter = await preview.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bgBefore).not.toBe(bgAfter);
     await expect(preview.locator('.hl-preview-note')).toContainText('zenburn');
     // 还原默认
-    await win.locator('.opt', { hasText: '高亮风格' }).locator('select').selectOption('pygments');
+    await win.locator('.opt', { hasText: '代码块高亮风格' }).locator('select').selectOption('pygments');
   });
 
   test('U3 最近文件点击重新转换：默认覆盖保护下先失败，勾选覆盖后成功', async () => {
@@ -101,5 +101,24 @@ test.describe('UX 优化（桌面端）', () => {
     expect(existsSync(join(srcDir, '重转测试.docx'))).toBe(true);
     // 还原覆盖开关
     await win.locator('.opt', { hasText: '覆盖同名输出' }).locator('input').click();
+  });
+
+  test('U5 最近文件一键清空：确认后清空并持久化（重启窗口仍为空）', async () => {
+    const srcDir = join(workspace, 'clear-ui');
+    mkdirSync(srcDir, { recursive: true });
+    const mdPath = join(srcDir, '清空测试.md');
+    writeFileSync(mdPath, '# 清空\n\n内容。\n', 'utf8');
+    await win.locator('.dropzone input[type=file]').setInputFiles([mdPath]);
+    await expect(win.locator('.recent-chip').first()).toBeVisible({ timeout: 30_000 });
+
+    // 原生 confirm 对话框：接受
+    win.once('dialog', (d) => void d.accept());
+    await win.locator('.recent-clear').click();
+    await expect(win.locator('.recent-chip')).toHaveCount(0);
+
+    // 重载后仍为空（recentFiles 持久化已清）
+    await win.reload();
+    await win.waitForLoadState('domcontentloaded');
+    await expect(win.locator('.recent-chip')).toHaveCount(0, { timeout: 15_000 });
   });
 });

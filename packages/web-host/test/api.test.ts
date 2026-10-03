@@ -6,12 +6,14 @@ import { createServer } from '../src/server.js';
 import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
+let jobs: ReturnType<typeof createServer>['jobs'];
 let dataDir: string;
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'md2word-host-'));
   const created = await createServer({ dataDir });
   app = created.app;
+  jobs = created.jobs;
   await app.ready();
 });
 
@@ -71,6 +73,15 @@ describe('POST /api/convert（US1：拖拽→转换→结果）', () => {
     expect(dl.statusCode).toBe(200);
     const buf = dl.rawPayload;
     expect(buf.subarray(0, 2).toString()).toBe('PK');
+
+    // 打开接口数据源（D30 修复）：按上传名解析产物 docx 路径
+    const openable = body.items[0]! as typeof item & { outputPath?: string };
+    expect(jobs!.findOutputPath(body.jobId, item.name)).toBe(openable.outputPath ?? null);
+
+    // 未产生物的名称 → 404 人话错误
+    const miss = await app.inject({ method: 'POST', url: `/api/open/${body.jobId}/${encodeURIComponent('不存在.md')}` });
+    expect(miss.statusCode).toBe(404);
+    expect((miss.json() as { error: string }).error).toContain('未找到该文件的转换产物');
 
     // 打开接口：拒绝越界路径（路径穿越防护）
     const openRes = await app.inject({ method: 'POST', url: `/api/open/${body.jobId}/${encodeURIComponent('../../etc/passwd')}` });

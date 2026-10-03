@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SerialQueue, convertMarkdown } from '@md2word/core';
 import type { ConvertOptions, ConvertResult } from '@md2word/core';
@@ -129,21 +129,43 @@ export class JobManager {
     return state ? state.dir : null;
   }
 
-  /** 在系统文件管理器中打开目录 / 用系统默认程序打开文件（US1） */
-  async openPath(target: string, mode: 'file' | 'folder'): Promise<boolean> {
+  /** 按上传名查找该作业已生成的产物 docx 路径（"打开/打开所在文件夹"的数据源，D30） */
+  findOutputPath(jobId: string, name: string): string | null {
+    const state = this.jobs.get(jobId);
+    if (!state) return null;
+    for (const item of state.items) {
+      if (item.name === name && item.result?.ok && item.result.outputPath) return item.result.outputPath;
+    }
+    return null;
+  }
+
+  /**
+   * 用系统方式打开产物：file = 默认程序打开文件；reveal = 在文件管理器中定位该文件。
+   * （D30：原先 file 模式在 macOS 走 `open -R` 定位的是 staged 的 .md，用户感知为"打开的是源文件目录"）
+   */
+  async openPath(target: string, mode: 'file' | 'reveal'): Promise<boolean> {
     const abs = resolve(target);
     if (!abs.startsWith(resolve(this.jobsRoot()))) {
       throw new Error('仅允许打开作业产物目录');
     }
     const { spawn } = await import('node:child_process');
-    const openBin = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-    const args = process.platform === 'win32'
-      ? [abs]
-      : mode === 'folder' ? [abs] : ['-R', abs]; // macOS：-R 在 Finder 中显示文件
+    let openBin: string;
+    let args: string[];
+    if (process.platform === 'darwin') {
+      openBin = 'open';
+      args = mode === 'reveal' ? ['-R', abs] : [abs];
+    } else if (process.platform === 'win32') {
+      openBin = 'explorer';
+      args = mode === 'reveal' ? ['/select,', abs] : [abs];
+    } else {
+      openBin = 'xdg-open';
+      args = [mode === 'reveal' ? dirname(abs) : abs];
+    }
     return new Promise((resolveOpen) => {
       const child = spawn(openBin, args, { detached: true, stdio: 'ignore', windowsHide: true });
       child.on('error', () => resolveOpen(false));
-      child.on('close', (code) => resolveOpen(code === 0));
+      // Windows 的 explorer 即使成功也常返回退出码 1
+      child.on('close', (code) => resolveOpen(process.platform === 'win32' ? code === 0 || code === 1 : code === 0));
       child.unref();
     });
   }

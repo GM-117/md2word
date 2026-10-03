@@ -82,6 +82,18 @@ test.describe('M2 Web 冒烟', () => {
     await expect(page.locator('.recent-chip', { hasText: 'basic-zh.md' })).toHaveCount(0);
   });
 
+  test('US6：最近文件——一键清空（确认后清空并持久化）', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH]);
+    await expect(page.locator('.recent-chip').first()).toBeVisible();
+    page.once('dialog', (d) => void d.accept());
+    await page.locator('.recent-clear').click();
+    await expect(page.locator('.recent-chip')).toHaveCount(0);
+    // 刷新后仍为空（清空已持久化）
+    await page.reload();
+    await expect(page.locator('.recent-chip')).toHaveCount(0);
+  });
+
   test('US5：日志一键导出（md2word-log.txt，含 [INFO] 记录）', async ({ page }) => {
     await page.goto('/');
     const downloadPromise = page.waitForEvent('download');

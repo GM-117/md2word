@@ -230,21 +230,20 @@ export async function createServer(opts: CreateServerOptions = {}) {
     return reply.send(createReadStream(file));
   });
 
-  // ---- 打开文件/目录 ----
+  // ---- 打开文件/目录（D30：打开/定位的是转换产物 docx，而非 staged 的 .md） ----
   app.post('/api/open/:jobId/:name', async (req, reply) => {
     const { jobId, name } = req.params as { jobId: string; name: string };
-    const dir = jobs.jobDir(jobId);
-    if (!dir) {
+    if (!jobs.jobDir(jobId)) {
       reply.code(404);
       return { ok: false, error: '作业不存在' };
     }
-    const target = join(dir, decodeURIComponent(name));
-    if (!target.startsWith(dir) || !existsSync(target)) {
+    const output = jobs.findOutputPath(jobId, decodeURIComponent(name));
+    if (!output || !existsSync(output)) {
       reply.code(404);
-      return { ok: false, error: '文件不存在' };
+      return { ok: false, error: '未找到该文件的转换产物（可能转换失败或已被清理）' };
     }
-    const openFolder = (req.query as { folder?: string }).folder === '1';
-    const ok = await jobs.openPath(openFolder ? dir : target, openFolder ? 'folder' : 'file');
+    const reveal = (req.query as { folder?: string }).folder === '1';
+    const ok = await jobs.openPath(output, reveal ? 'reveal' : 'file');
     return { ok };
   });
 
