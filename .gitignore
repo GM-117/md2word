@@ -19,6 +19,9 @@ playwright-report/
 test-results/
 .blob-testing/
 
+# 报告 md 转出的 docx（冒烟测试产物，不入库）
+docs/tests/*.docx
+
 # 大样例由 scripts/generate-large-samples.mjs 生成（§5.2），不入库
 samples/large-*.md
 samples/**/*.docx
