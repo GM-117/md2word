@@ -32,8 +32,9 @@ mac:
 
 win:
   icon: build/icon.ico
-  # 阶段一不购买证书（开发计划 §3 签名策略）：SmartScreen 解除指引见 README
-  signAndEditExecutable: false
+  # 不购买证书（开发计划 §3 签名策略）：signAndEditExecutable 仅用于把图标/版本信息写入 exe；
+  # 无签名配置时 electron-builder 自动跳过签名，只做资源编辑。SmartScreen 解除指引见 README
+  signAndEditExecutable: true
   target:
     - target: nsis
       arch: [x64]

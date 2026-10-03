@@ -79,13 +79,6 @@ const IconDocArrow = () => (
     <path d="M9 14h5M12 11.5 14.5 14 12 16.5" />
   </Icon>
 );
-const IconBrand = () => (
-  <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-    <path d="M14 3v5h5" />
-    <path d="M8.5 13.5h6M12 10.5l3 3-3 3" />
-  </svg>
-);
 
 /* 队列空态插画 */
 function EmptyArt() {
@@ -405,7 +398,7 @@ export function App() {
     <main className="shell">
       <header className="topbar">
         <div className="brand">
-          <div className="logo" aria-hidden="true"><IconBrand /></div>
+          <img className="logo" src="/icon.svg" alt="" aria-hidden="true" />
           <div>
             <h1>md2word</h1>
             <p className="sub">

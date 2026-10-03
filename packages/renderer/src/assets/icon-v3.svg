@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- App 底板：近黑圆角矩形（与 v2 同族，保持品牌一致） -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#0F1115" stroke="#262A31" stroke-width="1.5"/>
+  <!-- M：Markdown（白色粗笔画字母） -->
+  <path d="M32 168V92L64 144L96 92V168" fill="none" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 转化箭头：M → W（白 → 亮版 Word 蓝渐变，沿箭头方向，箭杆与三角共用同一渐变） -->
+  <defs>
+    <linearGradient id="arrow-fade" gradientUnits="userSpaceOnUse" x1="104" y1="158" x2="138" y2="100">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <path d="M104 158L138 100" fill="none" stroke="url(#arrow-fade)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M138 100L125 107M138 100L138 115" fill="none" stroke="url(#arrow-fade)" stroke-width="14" stroke-linecap="round"/>
+  <!-- W：Word（亮版 Word 蓝） -->
+  <path d="M148 92L172 168L188 120L204 168L228 92" fill="none" stroke="#2563EB" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
