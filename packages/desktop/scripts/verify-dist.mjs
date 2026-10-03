@@ -30,6 +30,23 @@ const resDir = isWin ? join(appRoot, 'resources') : join(appRoot, 'Resources');
 const exe = isWin ? 'pandoc.exe' : 'pandoc';
 const pandocPath = join(resDir, 'pandoc', exe);
 add('pandoc sidecar 在位', existsSync(pandocPath), pandocPath);
+
+// 期望架构：win 固定 x64；mac 按产物目录名（release/mac → x64，release/mac-arm64 → arm64）。
+// 必须断言架构本身：x64 pandoc 在 arm64 mac 上可经 Rosetta 执行 --version，仅运行检查发现不了错配。
+const expectedArch = isWin ? 'x64' : /arm64/.test(targetArg) ? 'arm64' : 'x64';
+function pandocArch() {
+  if (isWin) {
+    // PE 头 machine 字段：0x8664=x64，0xAA64=arm64
+    const b = readFileSync(pandocPath);
+    const peOff = b.readUInt32LE(0x3c);
+    const machine = b.readUInt16LE(peOff + 4);
+    return machine === 0x8664 ? 'x64' : machine === 0xaa64 ? 'arm64' : `0x${machine.toString(16)}`;
+  }
+  // Mach-O：lipo -archs 输出 arm64 / x86_64
+  const out = execFileSync('lipo', ['-archs', pandocPath], { encoding: 'utf8' }).trim();
+  return out.split(' ').includes('x86_64') ? 'x64' : out;
+}
+
 if (existsSync(pandocPath)) {
   // Windows 产物在 mac/linux 上无法执行 → 校验 PE 头（MZ）；本机产物正常执行 --version
   const canRun = isWin === (process.platform === 'win32');
@@ -45,6 +62,16 @@ if (existsSync(pandocPath)) {
       add('pandoc 可执行（--version）', false, err instanceof Error ? err.message : String(err));
     }
   }
+  let archOk = false;
+  let archDetail = '';
+  try {
+    const actual = pandocArch();
+    archOk = actual === expectedArch;
+    archDetail = `实际 ${actual} / 期望 ${expectedArch}`;
+  } catch (err) {
+    archDetail = err instanceof Error ? err.message : String(err);
+  }
+  add('pandoc 架构与目标匹配', archOk, archDetail);
 }
 
 const licensePath = join(resDir, 'THIRD-PARTY-LICENSES.md');
