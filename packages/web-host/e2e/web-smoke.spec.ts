@@ -61,6 +61,27 @@ test.describe('M2 Web 冒烟', () => {
     await expect(offline).not.toBeChecked();
   });
 
+  test('取消转换按钮：空闲时不显示（按需出现，避免误触）', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.status-dot').waitFor();
+    await expect(page.getByRole('button', { name: '取消转换' })).toHaveCount(0);
+    // 导出日志已弱化到页脚
+    await expect(page.locator('.foot').getByRole('link', { name: '导出日志' })).toBeVisible();
+  });
+
+  test('US6：最近文件——单条删除并持久化', async ({ page }) => {
+    await page.goto('/');
+    // 转换一次确保产生记录（前面用例已写入时命中同一 chip，幂等）
+    await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH]);
+    const chip = page.locator('.recent-chip', { hasText: 'basic-zh.md' });
+    await expect(chip).toBeVisible();
+    await chip.locator('.chip-x').click();
+    await expect(chip).toHaveCount(0);
+    // 刷新后仍不出现（删除已持久化）
+    await page.reload();
+    await expect(page.locator('.recent-chip', { hasText: 'basic-zh.md' })).toHaveCount(0);
+  });
+
   test('US5：日志一键导出（md2word-log.txt，含 [INFO] 记录）', async ({ page }) => {
     await page.goto('/');
     const downloadPromise = page.waitForEvent('download');

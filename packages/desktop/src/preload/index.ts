@@ -15,5 +15,7 @@ contextBridge.exposeInMainWorld('md2word', {
   listTemplates: () => ipcRenderer.invoke('template:list'),
   uploadTemplate: (name: string, bytes: Uint8Array) => ipcRenderer.invoke('template:add', name, bytes),
   deleteTemplate: (name: string) => ipcRenderer.invoke('template:delete', name),
+  templateSummary: (id: string) => ipcRenderer.invoke('template:summary', id),
+  reconvert: (name: string) => ipcRenderer.invoke('convert:reconvert', name),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 });

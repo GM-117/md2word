@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { ipcMain, shell } from 'electron';
 import { resolvePandocInfo } from '@md2word/core';
 import type { AppServices } from './context.js';
@@ -69,4 +70,17 @@ export function registerBridge(services: AppServices): void {
   );
 
   ipcMain.handle('template:delete', (_event, name: unknown) => services.templates.delete(String(name ?? '')));
+
+  ipcMain.handle('template:summary', (_event, id: unknown) => services.templates.describeTemplate(String(id ?? '')));
+
+  // 最近文件"点击重新转换"：源路径来自转换服务登记的 recentPaths（白名单数据，非用户输入路径）
+  ipcMain.handle('convert:reconvert', (_event, name: unknown) => {
+    const n = String(name ?? '');
+    const paths = (services.settings.all.recentPaths ?? {}) as Record<string, string>;
+    const p = paths[n];
+    if (!p || !existsSync(p)) {
+      throw new Error(`找不到该文件的源路径，可能已被移动或删除：${p ?? n}`);
+    }
+    return services.convert.run([{ name: n, path: p }], {});
+  });
 }

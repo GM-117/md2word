@@ -51,6 +51,7 @@ export async function createServices(paths: AppPaths, opts: CreateServicesOption
     registry,
     templates,
     () => settings.all,
+    (patch) => settings.set(patch),
     logger,
   );
 

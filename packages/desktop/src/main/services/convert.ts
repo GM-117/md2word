@@ -64,6 +64,7 @@ export class ConvertService {
     private readonly registry: JobRegistry,
     private readonly templates: TemplateService,
     private readonly settingsAll: () => Record<string, unknown>,
+    private readonly settingsSet: (patch: Record<string, unknown>) => void,
     private readonly logger: LogBuffer,
   ) {}
 
@@ -182,7 +183,37 @@ export class ConvertService {
       }),
     );
 
+    this.recordRecentPaths(mdEntries);
     return { jobId, items };
+  }
+
+  /**
+   * 登记最近文件的源路径（桌面端"点击最近文件重新转换"的数据源）：
+   * 仅 path 模式的真实文件；键裁剪到渲染层维护的 recentFiles 列表内（上限 10）。
+   */
+  private recordRecentPaths(mdEntries: PreparedMd[]): void {
+    try {
+      const s = this.settingsAll();
+      const recentFiles = Array.isArray(s.recentFiles) ? (s.recentFiles as string[]) : [];
+      if (recentFiles.length === 0) return;
+      const merged: Record<string, string> = { ...((s.recentPaths ?? {}) as Record<string, string>) };
+      let changed = false;
+      for (const e of mdEntries) {
+        if (!e.staged && e.srcPath && merged[e.name] !== e.srcPath) {
+          merged[e.name] = e.srcPath;
+          changed = true;
+        }
+      }
+      const ordered: Record<string, string> = {};
+      for (const name of recentFiles.slice(0, 10)) {
+        if (merged[name]) ordered[name] = merged[name];
+      }
+      if (changed || JSON.stringify(ordered) !== JSON.stringify(s.recentPaths ?? {})) {
+        this.settingsSet({ recentPaths: ordered });
+      }
+    } catch {
+      // 记录失败不影响转换结果
+    }
   }
 
   /** 设置合并（web-host /api/convert 同构）：设置兜底 + 请求覆盖；模板由设置链解析（template 键由渲染层剥离） */

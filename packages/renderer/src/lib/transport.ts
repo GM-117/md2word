@@ -56,6 +56,15 @@ export interface TemplateInfo {
 
 export type Settings = Record<string, unknown>;
 
+/** 模板样式概览（桌面端"模板预览"卡片数据；与 desktop services/templates.ts 的 TemplateStyleSummary 对应） */
+export interface TemplateStyleSummary {
+  label: string;
+  normal?: { font?: string; eastAsia?: string; sizePt?: number };
+  heading?: { font?: string; eastAsia?: string; sizePt?: number };
+  code?: { font?: string; eastAsia?: string; sizePt?: number };
+  lineSpacing?: number;
+}
+
 export interface ApiTransport {
   health(): Promise<Health>;
   /** 一次作业：files[0..n] 中的 .md 参与转换，其余文件作为资源随作业保存（供相对路径引用） */
@@ -168,6 +177,10 @@ export interface Md2WordBridge {
   listTemplates(): Promise<TemplateInfo>;
   uploadTemplate(name: string, bytes: Uint8Array): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }>;
   deleteTemplate(name: string): Promise<boolean>;
+  /** 模板样式概览（模板预览卡片；失败/未知 id 返回 null） */
+  templateSummary(id: string): Promise<TemplateStyleSummary | null>;
+  /** 点击最近文件重新转换（使用当前选项；源路径由主进程 recentPaths 登记表解析） */
+  reconvert(name: string): Promise<JobResult>;
   /** 拖拽/选择的 File → 真实文件系统路径；虚拟文件（如自动化注入）返回空串 */
   getPathForFile(file: File): string;
 }
@@ -237,7 +250,18 @@ export class IpcTransport implements ApiTransport {
   async deleteTemplate(name: string): Promise<boolean> {
     return bridge().deleteTemplate(name);
   }
+
+  async templateSummary(id: string): Promise<TemplateStyleSummary | null> {
+    return bridge().templateSummary(id);
+  }
+
+  async reconvert(name: string): Promise<JobResult> {
+    return bridge().reconvert(name);
+  }
 }
+
+/** 桌面能力标记：Electron 桥存在（最近文件点击重转/模板预览等桌面专属 UI 依赖它降级） */
+export const isDesktop = typeof window !== 'undefined' && !!window.md2word;
 
 /** 环境自动选择：Electron 下走 IPC，浏览器/web-host 下走 HTTP（UI 组件对此无感知） */
 export const transport: ApiTransport =

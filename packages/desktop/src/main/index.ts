@@ -20,11 +20,13 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null;
 let services: AppServices | null = null;
 
+// userData 重置必须先于单实例锁：锁按 userData 落位，否则开发/E2E 实例会与已安装的应用互相顶掉（D27）
+if (process.env.MD2WORD_USER_DATA) app.setPath('userData', process.env.MD2WORD_USER_DATA);
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  if (process.env.MD2WORD_USER_DATA) app.setPath('userData', process.env.MD2WORD_USER_DATA);
   app.setName('md2word');
 
   app.on('second-instance', () => {

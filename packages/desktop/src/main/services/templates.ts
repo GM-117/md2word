@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { getBundledReferenceDocx, resolvePandocInfo, runPandoc, validateTemplate } from '@md2word/core';
+import { unzipSync } from 'fflate';
 import type { LogBuffer } from './logger.js';
 import type { SettingsService } from './settings.js';
 
@@ -15,6 +16,16 @@ export interface TemplateInfo {
 export type TemplateAddResult =
   | { ok: true; name: string }
   | { ok: false; error: string; missingStyles?: string[] };
+
+/** 模板样式概览（渲染层"模板预览"卡片的数据源；字体供 CSS font-family 直接使用） */
+export interface TemplateStyleSummary {
+  label: string;
+  normal?: { font?: string; eastAsia?: string; sizePt?: number };
+  heading?: { font?: string; eastAsia?: string; sizePt?: number };
+  code?: { font?: string; eastAsia?: string; sizePt?: number };
+  /** 行距倍数（由 Normal 的 w:line/240 计算；仅 lineRule="auto" 时有效） */
+  lineSpacing?: number;
+}
 
 /**
  * 模板服务：userData/templates 下用户模板的导入/校验/删除 + 内置模板与 pandoc 默认模板的解析。
@@ -107,5 +118,88 @@ export class TemplateService {
     }
     writeFileSync(cached, run.stdoutBytes);
     return cached;
+  }
+
+  /** 模板样式概览：按模板 id（builtin-zh / pandoc-default / 用户模板名）解析并提取关键样式 */
+  async describeTemplate(id: string): Promise<TemplateStyleSummary | null> {
+    try {
+      let path: string | undefined;
+      let label: string;
+      if (id === 'builtin-zh') {
+        path = this.builtinTemplatePath ?? getBundledReferenceDocx() ?? undefined;
+        label = '内置中文模板';
+      } else if (id === 'pandoc-default') {
+        path = await this.ensurePandocDefaultTemplate();
+        label = 'pandoc 默认样式';
+      } else {
+        const safe = basename(id);
+        path = join(this.templatesDir, `${safe}.docx`);
+        if (!existsSync(path)) return null;
+        label = `${safe}（自定义）`;
+      }
+      if (!path || !existsSync(path)) return null;
+      return { ...summarizeTemplate(path), label };
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** 从 styles.xml 提取指定样式的字体/字号/颜色；字体缺省时回退 docDefaults → 主题字体（pandoc 默认模板字体在 theme 里） */
+function extractStyle(
+  stylesXml: string,
+  styleId: string,
+  fallback: { font?: string; eastAsia?: string } = {},
+): { font?: string; eastAsia?: string; sizePt?: number } {
+  const block = new RegExp(`<w:style [^>]*w:styleId="${styleId}"[\\s\\S]*?</w:style>`).exec(stylesXml)?.[0];
+  if (!block) return { ...fallback };
+  const fonts = /<w:rFonts[^>]*\/>/.exec(block)?.[0] ?? '';
+  const sz = /<w:sz w:val="(\d+)"/.exec(block)?.[1];
+  return {
+    font: /w:ascii="([^"]+)"/.exec(fonts)?.[1] ?? fallback.font,
+    eastAsia: /w:eastAsia="([^"]+)"/.exec(fonts)?.[1] ?? fallback.eastAsia,
+    sizePt: sz ? Number(sz) / 2 : undefined,
+  };
+}
+
+function docDefaultsFonts(stylesXml: string): { font?: string; eastAsia?: string } {
+  const dd = /<w:rPrDefault>[\s\S]*?<w:rFonts([^>]*)\/>/.exec(stylesXml)?.[1];
+  if (!dd) return {};
+  return { font: /w:ascii="([^"]+)"/.exec(dd)?.[1], eastAsia: /w:eastAsia="([^"]+)"/.exec(dd)?.[1] };
+}
+
+/** theme1.xml 的字体方案：latin 顺序为 [majorFont, minorFont] */
+function themeFonts(files: Record<string, Uint8Array>): { major?: string; minor?: string } {
+  const themeKey = Object.keys(files).find((k) => /theme\d*\.xml$/.test(k));
+  if (!themeKey) return {};
+  const xml = new TextDecoder().decode(files[themeKey]!);
+  const latin = [...xml.matchAll(/<a:latin typeface="([^"]*)"/g)].map((m) => m[1]);
+  return { major: latin[0], minor: latin[1] };
+}
+
+/** 模板 → 样式概览（正文/标题/代码三行 + 行距；解析失败返回空概览，渲染层降级为仅描述文案） */
+export function summarizeTemplate(docxPath: string): Omit<TemplateStyleSummary, 'label'> {
+  try {
+    const files = unzipSync(new Uint8Array(readFileSync(docxPath)));
+    const stylesXml = files['word/styles.xml'] ? new TextDecoder().decode(files['word/styles.xml']) : '';
+    if (!stylesXml) return {};
+    const theme = themeFonts(files as Record<string, Uint8Array>);
+    const dd = docDefaultsFonts(stylesXml);
+    const base = { font: dd.font ?? theme.minor, eastAsia: dd.eastAsia };
+    const headingBase = { font: theme.major ?? base.font, eastAsia: base.eastAsia };
+    const normal = extractStyle(stylesXml, 'Normal', base);
+    const heading = extractStyle(stylesXml, 'Heading1', headingBase);
+    const code = extractStyle(stylesXml, 'SourceCode').font
+      ? extractStyle(stylesXml, 'SourceCode')
+      : extractStyle(stylesXml, 'VerbatimChar', base);
+    const spacing = /<w:style [^>]*w:styleId="Normal"[\s\S]*?<w:spacing[^>]*w:line="(\d+)"[^>]*w:lineRule="auto"/.exec(stylesXml);
+    return {
+      normal,
+      heading,
+      code,
+      ...(spacing ? { lineSpacing: Number(spacing[1]) / 240 } : {}),
+    };
+  } catch {
+    return {};
   }
 }

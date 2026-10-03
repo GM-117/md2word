@@ -28,3 +28,15 @@
 ## 遗留
 
 - 无功能遗留；失败态截图经由路由拦截 mock `/api/convert` 取得（无效 UTF-8 输入未能触发真实 pandoc 失败），失败行样式与真实渲染路径一致（同一组件分支）。
+
+## 增量（2026-10-03）：取消队列反馈 + 最近文件单条删除
+
+用户反馈两点：①"取消队列"点击无反应且不知用途；②最近文件无法删除。
+
+**变更**：
+- `transport.ts`：`cancel()` 返回 `{ cancelled: number }`（HttpTransport 解析 `/api/cancel` 响应；IpcTransport 从桥归一化）。
+- `App.tsx`：新增轻量 toast（右上角，2.6s 自动消失）；"取消队列"点击后反馈"已请求取消：中断了 N 个转换任务"/"当前没有进行中的转换任务"，按钮加 title 说明；最近文件 chip 加 × 删除按钮（`removeRecent`，删除后即时持久化 `recentFiles`）。
+- `styles.css`：`.toast`、`.chip-x`、按钮 disabled 态样式。
+- `使用手册.md`：3.1/3.7/3.8 三处描述同步更新。
+
+**验证**：typecheck、lint 通过；Playwright E2E 新增 2 用例（空闲取消 toast 反馈、单条删除并刷新持久化）后 10/10 通过；实机截图确认 chips × 按钮、toast 渲染、删除 4→3 生效。

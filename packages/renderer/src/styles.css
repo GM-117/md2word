@@ -125,6 +125,8 @@ button, .button {
 }
 button:hover, .button:hover { background: var(--surface-3); border-color: var(--text-3); }
 button:active, .button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:disabled:hover { background: var(--surface-2); border-color: var(--border-strong); }
 
 .button.primary {
   background: linear-gradient(180deg, var(--accent-strong), var(--accent));
@@ -250,20 +252,34 @@ input[type="text"]:focus { outline: none; border-color: var(--accent); box-shado
 }
 .recent-label { font-size: 12px; color: var(--text-3); }
 .recent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
-  padding: 2px 10px;
+  padding: 2px 5px 2px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
   color: var(--text-2);
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: default;
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 .recent-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.chip-x:hover { background: var(--danger-soft); color: var(--danger); }
 
 /* 主布局 */
 .layout {
@@ -586,6 +602,24 @@ details pre {
   margin-top: 18px;
 }
 
+/* 轻提示（toast） */
+.toast {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 50;
+  max-width: 360px;
+  padding: 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  box-shadow: var(--shadow-pop);
+  animation: toast-in 0.18s ease;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+
 /* 页脚 */
 .foot {
   margin-top: 30px;
@@ -616,3 +650,52 @@ details pre {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 最近文件：可点击重转（桌面端） */
+.recent-hint { font-size: 11px; color: var(--text-3); }
+button.chip-name {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+button.chip-name:hover { background: transparent; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+button.chip-name:disabled { opacity: 0.55; cursor: wait; }
+button.chip-name:hover:not(:disabled) { transform: none; }
+
+/* 高亮风格示意预览 */
+.hl-preview {
+  margin: 6px 0 2px 26px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+.hl-preview code { font-family: inherit; white-space: pre; }
+.hl-preview-note { margin: 6px 0 0; font-size: 11px; color: var(--text-3); font-family: inherit; }
+
+/* 模板样式概览卡片 */
+.tpl-preview {
+  margin: 8px 0 2px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.tpl-sample .ts-h { margin: 0 0 4px; font-size: 17px; font-weight: 700; }
+.tpl-sample .ts-b { margin: 0 0 4px; font-size: 14px; }
+.tpl-sample .ts-c { margin: 0; font-size: 12.5px; font-family: "Consolas", "Menlo", monospace; color: var(--accent); }
+.tpl-preview .hint { margin: 8px 0 0; }
+
+/* 页脚日志入口（弱化的文字链接） */
+.foot-link { color: var(--text-3); text-decoration: underline; text-underline-offset: 2px; }
+.foot-link:hover { color: var(--accent); }

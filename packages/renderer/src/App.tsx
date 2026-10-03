@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { transport, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo } from './lib/transport';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { transport, isDesktop, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo, type TemplateStyleSummary } from './lib/transport';
 
 interface RowState {
   key: string;
@@ -62,8 +62,8 @@ const IconCheck = () => (
     <path d="M20 6 9 17l-5-5" />
   </Icon>
 );
-const IconX = () => (
-  <Icon size={13}>
+const IconX = ({ size = 13 }: { size?: number }) => (
+  <Icon size={size}>
     <path d="M18 6 6 18M6 6l12 12" />
   </Icon>
 );
@@ -101,6 +101,55 @@ function EmptyArt() {
   );
 }
 
+/* 高亮风格示意色板（近似 pygments 同名风格；提示用户以 Word 打开为准） */const HL_PALETTES: Record<string, { bg: string; text: string; kw: string; str: string; com: string; num: string }> = {
+  pygments: { bg: '#f6f8fa', text: '#24292f', kw: '#cf222e', str: '#0a3069', com: '#6e7781', num: '#0550ae' },
+  tango: { bg: '#faf8ef', text: '#2e3436', kw: '#204a87', str: '#4e9a06', com: '#8f5902', num: '#0000cf' },
+  espresso: { bg: '#fffef7', text: '#33312e', kw: '#a61717', str: '#4070a0', com: '#bc7a00', num: '#40a070' },
+  zenburn: { bg: '#3f3f3f', text: '#dcdccc', kw: '#f0dfaf', str: '#cc9393', com: '#7f9f7f', num: '#dca3a3' },
+  kate: { bg: '#ffffff', text: '#1f1c1b', kw: '#0057ae', str: '#bf0303', com: '#898887', num: '#b08000' },
+  monochrome: { bg: '#ffffff', text: '#000000', kw: '#000000', str: '#000000', com: '#000000', num: '#000000' },
+};
+
+/** 高亮风格示意预览：让用户在选择前看到该风格下代码的大致着色（非像素级还原） */
+function HLPreview({ style }: { style: string }) {
+  const p = HL_PALETTES[style] ?? HL_PALETTES.pygments!;
+  return (
+    <div className="hl-preview" style={{ background: p.bg, color: p.text } as CSSProperties} aria-hidden="true">
+      <code>
+        <span style={{ color: p.kw, fontWeight: 600 }}>def</span> greet(name):
+        <br />
+        {'    '}
+        <span style={{ color: p.com, fontStyle: 'italic' }}># 打招呼并返回问候语</span>
+        <br />
+        {'    '}
+        count = <span style={{ color: p.num }}>3</span>
+        <br />
+        {'    '}
+        <span style={{ color: p.kw, fontWeight: 600 }}>return</span> <span style={{ color: p.str }}>f"你好，{'{name}'}！"</span>
+      </code>
+      <p className="hl-preview-note">高亮风格示意（{style}），实际效果以 Word 打开为准</p>
+    </div>
+  );
+}
+
+/** 样式字体 → CSS font-family；preferEastAsia=true（中文正文）中文字体在前，false（代码）西文字体在前 */
+function cssFont(s?: { font?: string; eastAsia?: string }, preferEastAsia = true): string | undefined {
+  if (!s) return undefined;
+  const parts = (preferEastAsia ? [s.eastAsia, s.font] : [s.font, s.eastAsia]).filter(Boolean) as string[];
+  return parts.length > 0 ? parts.map((f) => `"${f}"`).join(', ') : undefined;
+}
+
+/** 字体显示名（常见中文字体映射，其余原样） */
+function cnFont(s?: { font?: string; eastAsia?: string }, preferEastAsia = true): string {
+  const raw = preferEastAsia ? (s?.eastAsia ?? s?.font ?? '') : (s?.font ?? s?.eastAsia ?? '');
+  const map: Record<string, string> = { SimSun: '宋体', SimHei: '黑体', KaiTi: '楷体', FangSong: '仿宋', 'Microsoft YaHei': '微软雅黑' };
+  return map[raw] ?? raw;
+}
+
+function trimSpacing(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
@@ -111,6 +160,20 @@ export function App() {
   const [templates, setTemplates] = useState<TemplateInfo | null>(null);
   const [templateMsg, setTemplateMsg] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  const [recentPaths, setRecentPaths] = useState<Record<string, string>>({});
+  const [tplSummary, setTplSummary] = useState<TemplateStyleSummary | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2600);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+  }, []);
 
   const [options, setOptions] = useState<ConvertOptionsPayload>({
     toc: false,
@@ -154,9 +217,22 @@ export function App() {
       .catch(() => undefined);
     transport.getSettings().then((s) => {
       if (Array.isArray(s.recentFiles)) setRecentFiles(s.recentFiles as string[]);
+      if (isDesktop && s.recentPaths && typeof s.recentPaths === 'object') {
+        setRecentPaths(s.recentPaths as Record<string, string>);
+      }
     }).catch(() => undefined);
     refreshTemplates();
   }, [refreshTemplates]);
+
+  // 模板样式概览（桌面端）：随模板选择变化
+  useEffect(() => {
+    if (!isDesktop) return;
+    let alive = true;
+    window.md2word!.templateSummary(options.template ?? 'builtin-zh')
+      .then((s) => { if (alive) setTplSummary(s); })
+      .catch(() => { if (alive) setTplSummary(null); });
+    return () => { alive = false; };
+  }, [options.template, templates]);
 
   const patchOptions = useCallback((patch: Partial<ConvertOptionsPayload>) => {
     setOptions((prev) => ({ ...prev, ...patch }));
@@ -261,6 +337,53 @@ export function App() {
 
   const clearRows = useCallback(() => { if (!busy) setRows([]); }, [busy]);
 
+  // 取消队列：中断正在进行的 pandoc 转换并清空等待任务；空闲时给出说明性反馈
+  const cancelQueue = useCallback(async () => {
+    try {
+      const { cancelled } = await transport.cancel();
+      showToast(cancelled > 0 ? `已请求取消：中断了 ${cancelled} 个转换任务` : '当前没有进行中的转换任务');
+    } catch {
+      showToast('取消请求发送失败，请确认 web-host 正在运行');
+    }
+  }, [showToast]);
+
+  // 删除单条最近文件记录（同步持久化到设置）
+  const removeRecent = useCallback((name: string) => {
+    setRecentFiles((prev) => {
+      const next = prev.filter((n) => n !== name);
+      void transport.saveSettings({ recentFiles: next }).catch(() => undefined);
+      return next;
+    });
+  }, []);
+
+  // 最近文件点击重新转换（桌面端）：主进程按登记的源路径 + 当前选项转换，结果照常进入队列列表
+  const reconvertRecent = useCallback(async (name: string) => {
+    if (busy) return;
+    setBusy(true);
+    setLog(null);
+    const key = `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setRows((prev) => [...prev, { key, name, status: 'converting' as const }]);
+    try {
+      const job = await window.md2word!.reconvert(name);
+      const item = job.items[0];
+      setRows((prev) => prev.map((r) => (r.key === key
+        ? item
+          ? { ...r, status: item.ok ? 'done' as const : 'failed' as const, result: item, jobId: job.jobId }
+          : { ...r, status: 'failed' as const, result: { ok: false, durationMs: 0, warnings: [], name, error: { code: 'E_BRIDGE', message: '服务端未返回该文件的结果' } } }
+        : r)));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRows((prev) => prev.map((r) => (r.key === key
+        ? { ...r, status: 'failed' as const, result: { ok: false, durationMs: 0, warnings: [], name, error: { code: 'E_BRIDGE', message } } }
+        : r)));
+    }
+    setBusy(false);
+    // 转换后主进程可能已刷新 recentPaths 登记，轻量拉取一次用于 tooltip
+    void transport.getSettings().then((s) => {
+      if (s.recentPaths && typeof s.recentPaths === 'object') setRecentPaths(s.recentPaths as Record<string, string>);
+    }).catch(() => undefined);
+  }, [busy]);
+
   const doneCount = rows.filter((r) => r.status === 'done').length;
 
   return (
@@ -286,15 +409,42 @@ export function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <button type="button" onClick={() => void transport.cancel()}>取消队列</button>
-          <a className="button" href={transport.exportLogUrl()} target="_blank" rel="noreferrer">导出日志</a>
+          {busy && (
+            <button
+              type="button"
+              title="中断正在进行的转换并清空等待中的任务"
+              onClick={() => void cancelQueue()}
+            >
+              取消转换
+            </button>
+          )}
         </div>
       </header>
 
       {recentFiles.length > 0 && (
         <div className="recent">
           <span className="recent-label">最近文件：</span>
-          {recentFiles.slice(0, 6).map((n) => <span key={n} className="recent-chip" title={n}>{n}</span>)}
+          {recentFiles.slice(0, 6).map((n) => (
+            <span key={n} className="recent-chip">
+              {isDesktop ? (
+                <button
+                  type="button"
+                  className="chip-name"
+                  title={recentPaths[n] ? `点击用当前选项重新转换\n${recentPaths[n]}` : '点击用当前选项重新转换'}
+                  disabled={busy}
+                  onClick={() => void reconvertRecent(n)}
+                >
+                  {n}
+                </button>
+              ) : (
+                <span className="chip-name" title={n}>{n}</span>
+              )}
+              <button type="button" className="chip-x" aria-label={`删除最近文件记录 ${n}`} title="删除该记录（不影响已转换的文件）" onClick={() => removeRecent(n)}>
+                <IconX size={10} />
+              </button>
+            </span>
+          ))}
+          {isDesktop && <span className="recent-hint">点击文件名可用当前选项重新转换</span>}
         </div>
       )}
 
@@ -346,6 +496,7 @@ export function App() {
                 {HIGHLIGHT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
+            <HLPreview style={String(options.highlightStyle)} />
             <label className="opt">
               <input type="checkbox" checked={options.offline} onChange={(e) => patchOptions({ offline: e.target.checked })} />
               离线模式（不抓取远程图片）
@@ -372,6 +523,23 @@ export function App() {
                 ))}
               </select>
             </label>
+            {isDesktop && tplSummary && (
+              <div className="tpl-preview">
+                <div className="tpl-sample" aria-hidden="true">
+                  <p className="ts-h" style={{ fontFamily: cssFont(tplSummary.heading) }}>一级标题样式</p>
+                  <p className="ts-b" style={{ fontFamily: cssFont(tplSummary.normal) }}>正文段落样式，中文与 English 混排效果。</p>
+                  <p className="ts-c" style={{ fontFamily: cssFont(tplSummary.code, false) }}>{'const greeting = "你好，世界";'}</p>
+                </div>
+                <p className="hint">
+                  {tplSummary.label}
+                  {tplSummary.normal && ` · 正文 ${cnFont(tplSummary.normal)}${tplSummary.normal.sizePt ? ` ${tplSummary.normal.sizePt}pt` : ''}`}
+                  {tplSummary.heading && ` · 标题 ${cnFont(tplSummary.heading)}`}
+                  {tplSummary.code && ` · 代码 ${cnFont(tplSummary.code, false)}`}
+                  {tplSummary.lineSpacing ? ` · ${trimSpacing(tplSummary.lineSpacing)} 倍行距` : ''}
+                  （示意效果，以 Word 打开为准）
+                </p>
+              </div>
+            )}
             <label className="opt">
               <span className="button ghost">
                 <IconUpload />
@@ -387,7 +555,8 @@ export function App() {
                 />
               </span>
             </label>
-            {templateMsg && <p className={templateMsg.includes('成功') ? 'hint' : 'err'}>{templateMsg}</p>}
+            <p className="hint">reference.docx 是 Word 样式模板：可在 Word 中基于内置模板改好字体/标题/代码样式后另存导入（需保留 12 项必需样式，缺样式会被拒绝并提示）。</p>
+            {templateMsg && <p className={`tpl-msg ${templateMsg.includes('成功') ? 'hint' : 'err'}`}>{templateMsg}</p>}
           </div>
 
           <div className="panel">
@@ -495,10 +664,14 @@ export function App() {
         <pre className="logbox">{log.join('\n')}</pre>
       )}
 
+      {toast && <div className="toast" role="status">{toast}</div>}
+
       <footer className="foot">
         <span>全程本地处理，文件不会上传</span>
         <span className="sep">·</span>
         <span>由 pandoc 驱动</span>
+        <span className="sep">·</span>
+        <a className="foot-link" href={transport.exportLogUrl()} target="_blank" rel="noreferrer" title="导出运行日志（问题排查用）">导出日志</a>
       </footer>
     </main>
   );

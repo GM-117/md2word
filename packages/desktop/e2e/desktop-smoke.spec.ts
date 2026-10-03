@@ -153,7 +153,7 @@ test.describe('M4 桌面冒烟', () => {
     copyFileSync(BUILTIN_DOCX, validCopy);
     await win.locator('input[type=file][accept=".docx"]').setInputFiles(validCopy);
     await expect(
-      win.locator('.panel', { hasText: '文档模板' }).locator('.hint'),
+      win.locator('.panel', { hasText: '文档模板' }).locator('.tpl-msg'),
     ).toContainText('导入成功', { timeout: 10_000 });
 
     await win.locator('input[type=file][accept=".docx"]').setInputFiles(BROKEN_DOCX);
