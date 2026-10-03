@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,16 +65,36 @@ test.describe('UX 优化（桌面端）', () => {
     await win.locator('.panel', { hasText: '文档模板' }).locator('select').selectOption('builtin-zh');
   });
 
-  test('U2 高亮风格示意预览：随选择切换配色', async () => {
+  test('U2 高亮风格示意预览：默认折叠，展开后随选择切换配色', async () => {
+    const details = win.locator('.hl-details');
     const preview = win.locator('.hl-preview');
+    // 默认折叠：不占选项区空间
+    await expect(details).toBeVisible();
+    await expect(preview).not.toBeVisible();
+    // 展开后可见
+    await details.locator('summary').click();
     await expect(preview).toBeVisible();
     const bgBefore = await preview.evaluate((el) => getComputedStyle(el).backgroundColor);
     await win.locator('.opt', { hasText: '代码块高亮风格' }).locator('select').selectOption('zenburn');
     const bgAfter = await preview.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bgBefore).not.toBe(bgAfter);
     await expect(preview.locator('.hl-preview-note')).toContainText('zenburn');
-    // 还原默认
+    // 还原默认风格并收起
     await win.locator('.opt', { hasText: '代码块高亮风格' }).locator('select').selectOption('pygments');
+    await details.locator('summary').click();
+  });
+
+  test('U6 模板文件下载：md2word://template → 确定性落盘（PK 魔数）', async () => {
+    const downloads = join(workspace, 'downloads');
+    const before = readdirSync(downloads).length;
+    await win.locator('.tpl-export').dispatchEvent('click');
+    await expect
+      .poll(async () => readdirSync(downloads).filter((f) => f.endsWith('.docx')).length, { timeout: 15_000 })
+      .toBeGreaterThan(before);
+    const file = readdirSync(downloads).filter((f) => f.endsWith('.docx')).map((f) => join(downloads, f)).at(-1)!;
+    expect(readFileSync(file).subarray(0, 2).toString()).toBe('PK');
+    // 页面不跳转
+    expect(win.url()).toContain('app://bundle/index.html');
   });
 
   test('U3 最近文件点击重新转换：默认覆盖保护下先失败，勾选覆盖后成功', async () => {
@@ -83,21 +103,21 @@ test.describe('UX 优化（桌面端）', () => {
     const mdPath = join(srcDir, '重转测试.md');
     writeFileSync(mdPath, '# 重转\n\n内容。\n', 'utf8');
     await win.locator('.dropzone input[type=file]').setInputFiles([mdPath]);
-    const firstRow = win.locator('.row').last();
+    const firstRow = win.locator('.row').first();
     await expect(firstRow.locator('.badge')).toContainText('成功', { timeout: 30_000 });
 
     // 最近文件 chip 出现且可点击（桌面端）
     const chip = win.locator('.recent-chip', { hasText: '重转测试.md' });
     await expect(chip).toBeVisible();
     await chip.locator('.chip-name').click();
-    const reRow = win.locator('.row').last();
+    const reRow = win.locator('.row').first();
     await expect(reRow.locator('.badge')).toContainText('失败', { timeout: 30_000 });
     await expect(reRow.locator('.err')).toContainText('输出文件已存在');
 
     // 勾选覆盖同名输出后再点击 chip → 成功
     await win.locator('.opt', { hasText: '覆盖同名输出' }).locator('input').click();
     await chip.locator('.chip-name').click();
-    await expect(win.locator('.row').last().locator('.badge')).toContainText('成功', { timeout: 30_000 });
+    await expect(win.locator('.row').first().locator('.badge')).toContainText('成功', { timeout: 30_000 });
     expect(existsSync(join(srcDir, '重转测试.docx'))).toBe(true);
     // 还原覆盖开关
     await win.locator('.opt', { hasText: '覆盖同名输出' }).locator('input').click();

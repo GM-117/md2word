@@ -55,7 +55,7 @@ test.describe('M4 桌面冒烟', () => {
     const mdCopy = join(srcDir, 'basic-zh.md');
     copyFileSync(BASIC_ZH, mdCopy);
     await win.locator('.dropzone input[type=file]').setInputFiles([mdCopy]);
-    const row = win.locator('.row').last();
+    const row = win.locator('.row').first();
     await expect(row.locator('.badge')).toContainText('成功', { timeout: 30_000 });
     return { row, srcDir };
   }
@@ -81,10 +81,10 @@ test.describe('M4 桌面冒烟', () => {
   test('T3b 失败路径（UI）：产物已存在且未开覆盖 → E_OUTPUT_EXISTS 人话错误', async () => {
     // 对 T2 已成功转换过的源目录再转一次（默认不覆盖 → 冲突）
     await win.locator('.dropzone input[type=file]').setInputFiles([join(workspace, 'ui-convert', 'basic-zh.md')]);
-    const lastRow = win.locator('.row').last();
-    await expect(lastRow.locator('.badge')).toContainText('失败', { timeout: 30_000 });
-    await expect(lastRow.locator('.err')).toContainText('输出文件已存在');
-    await expect(lastRow.locator('details summary')).toContainText('E_OUTPUT_EXISTS');
+    const newRow = win.locator('.row').first();
+    await expect(newRow.locator('.badge')).toContainText('失败', { timeout: 30_000 });
+    await expect(newRow.locator('.err')).toContainText('输出文件已存在');
+    await expect(newRow.locator('details summary')).toContainText('E_OUTPUT_EXISTS');
   });
 
   test('T3 US1 下载锚点：md2word:// attachment → 浏览器式下载（PK 魔数）', async () => {

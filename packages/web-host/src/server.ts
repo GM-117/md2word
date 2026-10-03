@@ -134,6 +134,36 @@ export async function createServer(opts: CreateServerOptions = {}) {
     return { ok: true, name: basename(saved).replace(/\.docx$/i, '') };
   });
 
+  // ---- 模板文件导出（供用户下载标准模板后自定义修改） ----
+  app.get('/api/templates/export/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    let p: string | null = null;
+    let filename = `${id}.docx`;
+    if (id === 'builtin-zh') {
+      p = getBundledReferenceDocx();
+      filename = '内置中文模板.docx';
+    } else if (id === 'pandoc-default') {
+      p = await ensurePandocDefaultTemplate();
+      filename = 'pandoc默认模板.docx';
+    } else {
+      const safe = basename(id);
+      if (!safe || safe !== id) {
+        reply.code(400);
+        return { ok: false, error: '非法模板名' };
+      }
+      p = join(templatesDir, `${safe}.docx`);
+      filename = `${safe}.docx`;
+    }
+    if (!p || !existsSync(p)) {
+      reply.code(404);
+      return { ok: false, error: '模板不存在' };
+    }
+    logger.info(`template exported: ${basename(p)} → ${filename}`);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    return reply.send(createReadStream(p));
+  });
+
   app.delete('/api/templates/:name', async (req, reply) => {
     const { name } = req.params as { name: string };
     const safe = basename(name);

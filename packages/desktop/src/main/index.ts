@@ -166,7 +166,7 @@ function registerResourceProtocol(): void {
       status: 200,
       headers: { 'content-type': 'text/plain', 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent('rejected.txt')}` },
     });
-  protocol.handle('md2word', (request) => {
+  protocol.handle('md2word', async (request) => {
     const resource = parseResourceUrl(request.url);
     const svc = services;
     if (!resource || !svc) return rejected();
@@ -176,6 +176,21 @@ function registerResourceProtocol(): void {
           headers: {
             'content-type': 'text/plain; charset=utf-8',
             'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent('md2word-log.txt')}`,
+          },
+        });
+      }
+      if (resource.kind === 'template') {
+        if (!svc.templates.templateExists(resource.id)) {
+          svc.logger.warn(`template export refused: ${resource.id}`);
+          return rejected();
+        }
+        const resolved = await svc.templates.resolveTemplatePath(resource.id);
+        if (!resolved) return rejected();
+        svc.logger.info(`template exported via md2word://: ${resolved.path}`);
+        return new Response(readFileSync(resolved.path), {
+          headers: {
+            'content-type': DOCX_MIME,
+            'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${resolved.label}.docx`)}`,
           },
         });
       }
@@ -226,8 +241,11 @@ function registerDownloadBehavior(): void {
   session.defaultSession.on('will-download', (event, item) => {
     const resource = parseResourceUrl(item.getURL());
     if (!resource) return; // 非 md2word 资源走默认行为
-    if (resource.kind === 'download' && !services?.registry.resolveByBasename(resource.jobId, resource.name)) {
-      services?.logger.warn(`download cancelled (will-download): 未登记的产物 ${resource.jobId}/${resource.name}`);
+    const unregistered =
+      (resource.kind === 'download' && !services?.registry.resolveByBasename(resource.jobId, resource.name)) ||
+      (resource.kind === 'template' && !services?.templates.templateExists(resource.id));
+    if (unregistered) {
+      services?.logger.warn(`download cancelled (will-download): ${item.getURL()}`);
       event.preventDefault();
       return;
     }

@@ -4,7 +4,8 @@
  */
 export type ResourceUrl =
   | { kind: 'download'; jobId: string; name: string }
-  | { kind: 'log' };
+  | { kind: 'log' }
+  | { kind: 'template'; id: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +21,19 @@ export function parseResourceUrl(rawUrl: string): ResourceUrl | null {
   // new URL 归一化后 md2word://log/export 的 host 为 log，pathname 为 /export
   const host = url.hostname;
   if (host === 'log') return { kind: 'log' };
+  if (host === 'template') {
+    const segments = url.pathname.split('/').filter(Boolean);
+    if (segments.length !== 1) return null;
+    let id = '';
+    try {
+      id = decodeURIComponent(segments[0] ?? '');
+    } catch {
+      return null;
+    }
+    if (id.length === 0 || id.length > 100) return null;
+    if (id.includes('/') || id.includes('\\') || id.includes('..') || id.includes('\0')) return null;
+    return { kind: 'template', id };
+  }
   if (host !== 'download') return null;
 
   const segments = url.pathname.split('/').filter(Boolean);
@@ -43,4 +57,9 @@ export function parseResourceUrl(rawUrl: string): ResourceUrl | null {
 /** 构造结果条目的 download URL（services/convert 输出用） */
 export function buildDownloadUrl(jobId: string, outputName: string): string {
   return `md2word://download/${jobId}/${encodeURIComponent(outputName)}`;
+}
+
+/** 构造模板文件下载 URL（renderer "下载当前模板文件"用） */
+export function buildTemplateUrl(id: string): string {
+  return `md2word://template/${encodeURIComponent(id)}`;
 }

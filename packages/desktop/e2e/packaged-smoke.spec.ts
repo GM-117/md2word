@@ -39,7 +39,7 @@ test('packaged smoke: UI + bundled pandoc + convert', async () => {
   mkdirSync(srcDir, { recursive: true });
   copyFileSync(join(REPO_ROOT, 'samples', 'basic-zh.md'), join(srcDir, 'basic-zh.md'));
   await win.locator('.dropzone input[type=file]').setInputFiles([join(srcDir, 'basic-zh.md')]);
-  const row = win.locator('.row').last();
+  const row = win.locator('.row').first();
   await win.waitForTimeout(6000);
   console.log('BADGE:', JSON.stringify(await row.locator('.badge').innerText().catch(() => '<missing>')));
   console.log('DOCX_EXISTS:', existsSync(join(srcDir, 'basic-zh.docx')));

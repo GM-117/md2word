@@ -123,25 +123,36 @@ export class TemplateService {
   /** 模板样式概览：按模板 id（builtin-zh / pandoc-default / 用户模板名）解析并提取关键样式 */
   async describeTemplate(id: string): Promise<TemplateStyleSummary | null> {
     try {
-      let path: string | undefined;
-      let label: string;
-      if (id === 'builtin-zh') {
-        path = this.builtinTemplatePath ?? getBundledReferenceDocx() ?? undefined;
-        label = '内置中文模板';
-      } else if (id === 'pandoc-default') {
-        path = await this.ensurePandocDefaultTemplate();
-        label = 'pandoc 默认样式';
-      } else {
-        const safe = basename(id);
-        path = join(this.templatesDir, `${safe}.docx`);
-        if (!existsSync(path)) return null;
-        label = `${safe}（自定义）`;
-      }
-      if (!path || !existsSync(path)) return null;
-      return { ...summarizeTemplate(path), label };
+      const resolved = await this.resolveTemplatePath(id);
+      if (!resolved) return null;
+      return { ...summarizeTemplate(resolved.path), label: resolved.label };
     } catch {
       return null;
     }
+  }
+
+  /** 模板 id 是否可解析（同步；md2word:// 下载闸门用） */
+  templateExists(id: string): boolean {
+    if (id === 'builtin-zh') return !!this.builtinTemplatePath && existsSync(this.builtinTemplatePath);
+    if (id === 'pandoc-default') return true; // 按需导出缓存
+    const safe = basename(id);
+    return safe.length > 0 && id === safe && existsSync(join(this.templatesDir, `${safe}.docx`));
+  }
+
+  /** 模板 id → 文件路径 + 展示名（样式概览与模板文件下载共用） */
+  async resolveTemplatePath(id: string): Promise<{ path: string; label: string } | null> {
+    if (id === 'builtin-zh') {
+      const p = this.builtinTemplatePath ?? getBundledReferenceDocx();
+      return p && existsSync(p) ? { path: p, label: '内置中文模板' } : null;
+    }
+    if (id === 'pandoc-default') {
+      const p = await this.ensurePandocDefaultTemplate();
+      return { path: p, label: 'pandoc 默认样式' };
+    }
+    const safe = basename(id);
+    if (!safe || id !== safe) return null;
+    const p = join(this.templatesDir, `${safe}.docx`);
+    return existsSync(p) ? { path: p, label: `${safe}（自定义）` } : null;
   }
 }
 

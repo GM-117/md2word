@@ -49,7 +49,7 @@ test.describe('M4 回归 · 边界与异常', () => {
     const mdPath = join(srcDir, mdName);
     writeFileSync(mdPath, mdSource);
     await win.locator('.dropzone input[type=file]').setInputFiles([mdPath]);
-    const row = win.locator('.row').last();
+    const row = win.locator('.row').first();
     await expect(row.locator('.badge')).toContainText(/成功|失败/, { timeout: 30_000 });
     return { row, srcDir, mdPath };
   }
@@ -129,7 +129,7 @@ test.describe('M4 回归 · 边界与异常', () => {
     const mdPath = join(workspace, 'offline-ui', 'offline.md');
     expect(existsSync(join(workspace, 'offline-ui', 'offline.docx'))).toBe(true);
     await win.locator('.dropzone input[type=file]').setInputFiles([mdPath]);
-    const row = win.locator('.row').last();
+    const row = win.locator('.row').first();
     await expect(row.locator('.badge')).toContainText('失败', { timeout: 30_000 });
     await expect(row.locator('.err')).toContainText('输出文件已存在');
   });

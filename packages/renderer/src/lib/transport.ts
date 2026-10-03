@@ -79,6 +79,8 @@ export interface ApiTransport {
   open(jobId: string, name: string, folder: boolean): Promise<boolean>;
   /** 模板列表（含校验状态） */
   listTemplates(): Promise<TemplateInfo>;
+  /** 下载当前模板文件（builtin-zh / pandoc-default / 用户模板名）的 URL */
+  exportTemplateUrl(id: string): string;
   /** 导入模板；无效模板被拒并返回缺失样式 */
   uploadTemplate(file: File): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }>;
   /** 删除用户模板 */
@@ -145,6 +147,10 @@ export class HttpTransport implements ApiTransport {
     return r.json() as Promise<TemplateInfo>;
   }
 
+  exportTemplateUrl(id: string): string {
+    return `/api/templates/export/${encodeURIComponent(id)}`;
+  }
+
   async uploadTemplate(file: File): Promise<{ ok: boolean; name?: string; error?: string; missingStyles?: string[] }> {
     const form = new FormData();
     form.append('file', file, file.name);
@@ -179,6 +185,9 @@ export interface Md2WordBridge {
   deleteTemplate(name: string): Promise<boolean>;
   /** 模板样式概览（模板预览卡片；失败/未知 id 返回 null） */
   templateSummary(id: string): Promise<TemplateStyleSummary | null>;
+  // 模板文件下载走 md2word://template/<id>（will-download 原生保存对话框），无需专用方法
+  /** 下载当前模板文件的 URL（web = HTTP 端点；桌面 = md2word:// 协议，原生保存对话框） */
+  exportTemplateUrl(id: string): string;
   /** 点击最近文件重新转换（使用当前选项；源路径由主进程 recentPaths 登记表解析） */
   reconvert(name: string): Promise<JobResult>;
   /** 拖拽/选择的 File → 真实文件系统路径；虚拟文件（如自动化注入）返回空串 */
@@ -227,6 +236,10 @@ export class IpcTransport implements ApiTransport {
 
   downloadUrl(path: string): string {
     return path; // 结果条目已携带 md2word://download/<jobId>/<name>
+  }
+
+  exportTemplateUrl(id: string): string {
+    return `md2word://template/${encodeURIComponent(id)}`;
   }
 
   async cancel(): Promise<{ cancelled: number }> {

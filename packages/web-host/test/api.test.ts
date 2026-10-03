@@ -51,6 +51,26 @@ describe('GET /api/health', () => {
   });
 });
 
+describe('GET /api/templates/export/:id', () => {
+  it('导出内置中文模板：合法 zip + 附件文件名', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/templates/export/builtin-zh' });
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.subarray(0, 2).toString()).toBe('PK');
+    expect(String(res.headers['content-disposition'])).toContain('filename*');
+  });
+
+  it('导出 pandoc 默认模板（按需生成缓存）', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/templates/export/pandoc-default' });
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.subarray(0, 2).toString()).toBe('PK');
+  });
+
+  it('未知模板 → 404', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/templates/export/nope.docx' });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe('POST /api/convert（US1：拖拽→转换→结果）', () => {
   it('中文文件名转换成功，产物可下载且为合法 zip', async () => {
     const md = readFileSync(new URL('../../../samples/basic-zh.md', import.meta.url), 'utf8');

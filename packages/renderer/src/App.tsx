@@ -280,9 +280,10 @@ export function App() {
       });
     } catch { /* 保存失败不阻断转换 */ }
     const newKeys = mdFiles.map((f) => ({ key: `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: f.name }));
+    // 最新转换显示在列表首位（无需下滚找最新结果）
     setRows((prev) => [
-      ...prev,
       ...newKeys.map((k) => ({ ...k, status: 'converting' as const })),
+      ...prev,
     ]);
     // 最近文件（US6/P1：成功失败都记录，上限 10）
     setRecentFiles((prev) => {
@@ -370,7 +371,7 @@ export function App() {
     setBusy(true);
     setLog(null);
     const key = `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setRows((prev) => [...prev, { key, name, status: 'converting' as const }]);
+    setRows((prev) => [{ key, name, status: 'converting' as const }, ...prev]);
     try {
       const job = await window.md2word!.reconvert(name);
       const item = job.items[0];
@@ -432,27 +433,29 @@ export function App() {
       {recentFiles.length > 0 && (
         <div className="recent">
           <span className="recent-label">最近文件：</span>
-          {recentFiles.slice(0, 6).map((n) => (
-            <span key={n} className="recent-chip">
-              {isDesktop ? (
-                <button
-                  type="button"
-                  className="chip-name"
-                  title={recentPaths[n] ? `点击用当前选项重新转换\n${recentPaths[n]}` : '点击用当前选项重新转换'}
-                  disabled={busy}
-                  onClick={() => void reconvertRecent(n)}
-                >
-                  {n}
+          <div className="recent-chips">
+            {recentFiles.slice(0, 6).map((n) => (
+              <span key={n} className="recent-chip">
+                {isDesktop ? (
+                  <button
+                    type="button"
+                    className="chip-name"
+                    title={recentPaths[n] ? `点击用当前选项重新转换\n${recentPaths[n]}` : '点击用当前选项重新转换'}
+                    disabled={busy}
+                    onClick={() => void reconvertRecent(n)}
+                  >
+                    {n}
+                  </button>
+                ) : (
+                  <span className="chip-name" title={n}>{n}</span>
+                )}
+                <button type="button" className="chip-x" aria-label={`删除最近文件记录 ${n}`} title="删除该记录（不影响已转换的文件）" onClick={() => removeRecent(n)}>
+                  <IconX size={10} />
                 </button>
-              ) : (
-                <span className="chip-name" title={n}>{n}</span>
-              )}
-              <button type="button" className="chip-x" aria-label={`删除最近文件记录 ${n}`} title="删除该记录（不影响已转换的文件）" onClick={() => removeRecent(n)}>
-                <IconX size={10} />
-              </button>
-            </span>
-          ))}
-          {isDesktop && <span className="recent-hint">点击文件名可用当前选项重新转换</span>}
+              </span>
+            ))}
+          </div>
+          <span className="recent-hint">点击文件名用当前选项重转</span>
           <button type="button" className="recent-clear" title="清空全部最近文件记录（不影响已转换的文件）" onClick={() => clearRecent()}>清空</button>
         </div>
       )}
@@ -505,8 +508,11 @@ export function App() {
                 {HIGHLIGHT_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
-            <p className="hint">仅影响标注了语言的代码块（如 ```js 围栏）的语法高亮配色；行内代码与正文文字不受影响。</p>
-            <HLPreview style={String(options.highlightStyle)} />
+            <details className="hl-details">
+              <summary>作用范围与效果预览</summary>
+              <p className="hint">仅影响标注了语言的代码块（如 ```js 围栏）的语法高亮配色；行内代码与正文文字不受影响。</p>
+              <HLPreview style={String(options.highlightStyle)} />
+            </details>
             <label className="opt">
               <input type="checkbox" checked={options.offline} onChange={(e) => patchOptions({ offline: e.target.checked })} />
               离线模式（不抓取远程图片）
@@ -533,6 +539,11 @@ export function App() {
                 ))}
               </select>
             </label>
+            <p className="tpl-export-line">
+              需要自定义样式？
+              <a className="tpl-export" href={transport.exportTemplateUrl(options.template ?? 'builtin-zh')}>下载当前模板文件</a>
+              ，在 Word 中修改字体/标题/代码样式后另存，再通过下方按钮导入。
+            </p>
             {isDesktop && tplSummary && (
               <div className="tpl-preview">
                 <div className="tpl-sample" aria-hidden="true">
@@ -582,7 +593,7 @@ export function App() {
               </ul>
               <p className="hint">在 Word 中打开模板 →「样式」窗格逐项确认存在；建议直接基于内置中文模板或 pandoc 默认模板修改后另存。</p>
             </details>
-            <p className="hint">reference.docx 是 Word 样式模板：可在 Word 中基于内置模板改好字体/标题/代码样式后另存导入（缺上述任一样式会被拒绝并提示缺哪些）。</p>
+            <p className="hint">文件名不限：任意合法 .docx 名称均可导入（“reference.docx” 只是 pandoc 的习惯叫法），导入后按文件名展示与选择；缺上述任一样式会被拒绝并提示缺哪些。</p>
             {templateMsg && <p className={`tpl-msg ${templateMsg.includes('成功') ? 'hint' : 'err'}`}>{templateMsg}</p>}
           </div>
 

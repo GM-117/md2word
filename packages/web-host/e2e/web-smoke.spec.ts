@@ -94,6 +94,26 @@ test.describe('M2 Web 冒烟', () => {
     await expect(page.locator('.recent-chip')).toHaveCount(0);
   });
 
+  test('M3：模板文件下载（内置中文模板，合法 zip）', async ({ page }) => {
+    await page.goto('/');
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('.tpl-export').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('内置中文模板');
+    expect(readFileSync(await download.path()).subarray(0, 2).toString()).toBe('PK');
+  });
+
+  test('队列：最新转换结果显示在列表首位', async ({ page }) => {
+    await page.goto('/');
+    const EMPTY = join(REPO_ROOT, 'samples', 'empty.md');
+    await page.locator('.dropzone input[type=file]').setInputFiles([BASIC_ZH]);
+    await expect(page.locator('.row').first()).toContainText('成功', { timeout: 30_000 });
+    await page.locator('.dropzone input[type=file]').setInputFiles([EMPTY]);
+    const first = page.locator('.row').first();
+    await expect(first).toContainText('empty.md', { timeout: 30_000 });
+    await expect(first.locator('.badge')).toContainText('成功');
+  });
+
   test('US5：日志一键导出（md2word-log.txt，含 [INFO] 记录）', async ({ page }) => {
     await page.goto('/');
     const downloadPromise = page.waitForEvent('download');
