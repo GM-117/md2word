@@ -1,7 +1,7 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { SerialQueue, convertMarkdown, type ConvertOptions, type ConvertStats, type HighlightStyle } from '@md2word/core';
+import { CANCEL_REASON, SerialQueue, convertMarkdown, type ConvertOptions, type ConvertStats, type HighlightStyle } from '@md2word/core';
 import type { LogBuffer } from './logger.js';
 import type { JobRegistry } from './jobs.js';
 import { buildDownloadUrl } from './resourceUrl.js';
@@ -81,13 +81,15 @@ export class ConvertService {
 
   cancelAll(): number {
     this.logger.warn('cancel requested: aborting running conversion and clearing queue');
-    return this.queue.cancelAll('用户取消');
+    return this.queue.cancelAll(CANCEL_REASON);
   }
 
   async run(entries: ConvertEntry[], options: ConvertOptionsPayload): Promise<JobResult> {
     const all = Array.isArray(entries) ? entries : [];
+    // 仅 bytes 模式（staged md/资源）需要作业目录；纯 path 模式产物落源目录，不建空目录（D34）
+    const needsStaging = all.some((e) => e?.bytes instanceof Uint8Array);
     const jobDir = join(this.jobsRoot, randomUUID());
-    mkdirSync(jobDir, { recursive: true });
+    if (needsStaging) mkdirSync(jobDir, { recursive: true });
 
     // 落位：md 与资源分开处理；staged 重名按 web-host 策略加 `N-` 前缀。
     // name 保留调用方给的展示名（文件夹批量时为含子目录的相对路径），落盘名一律取 basename。
@@ -175,12 +177,17 @@ export class ConvertService {
           };
         } catch (err) {
           this.logger.error(`convert threw: ${entry.name} ${err instanceof Error ? err.message : String(err)}`);
+          const message = err instanceof Error ? err.message : String(err);
           return {
             ok: false,
             durationMs: 0,
             warnings: [],
             name: entry.name,
-            error: { code: 'E_PANDOC_FAILED', message: err instanceof Error ? err.message : String(err) },
+            // 整队取消的待执行任务以 rejection 落到这里：与在跑任务的 E_CANCELLED 统一口径
+            error:
+              message === CANCEL_REASON
+                ? { code: 'E_CANCELLED', message: '转换已被取消。' }
+                : { code: 'E_PANDOC_FAILED', message },
           };
         }
       }),
@@ -273,4 +280,21 @@ function dedupeStagedName(used: Set<string>, name: string): string {
 function coerceTocDepth(n: number | undefined): 1 | 2 | 3 | 4 | 5 | 6 {
   const d = Math.round(Number(n));
   return (d >= 1 && d <= 6 ? d : 3) as 1 | 2 | 3 | 4 | 5 | 6;
+}
+
+/**
+ * 启动清扫（D34）：作业注册表在内存中，重启后 userData/jobs 下的历史作业目录全部不可达
+ * （open/download 均被拒），属纯垃圾——启动时清掉防止累积占盘；清扫失败不阻断启动。
+ */
+export function sweepStaleJobDirs(jobsRoot: string, log?: (msg: string) => void): void {
+  try {
+    let removed = 0;
+    for (const name of readdirSync(jobsRoot)) {
+      rmSync(join(jobsRoot, name), { recursive: true, force: true });
+      removed += 1;
+    }
+    if (removed > 0) log?.(`startup sweep: removed ${removed} stale job dir(s)`);
+  } catch {
+    /* jobsRoot 不存在（首次启动）或清扫失败：跳过 */
+  }
 }

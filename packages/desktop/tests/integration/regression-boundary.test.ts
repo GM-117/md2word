@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
@@ -14,6 +14,7 @@ import { unzipSync } from 'fflate';
  */
 
 const REPO = join(new URL('../../../../', import.meta.url).pathname);
+const SAMPLE = join(REPO, 'samples', 'basic-zh.md');
 
 class MemoryKvStore implements KvStore {
   data: Record<string, unknown> = { ...DEFAULT_SETTINGS };
@@ -152,7 +153,7 @@ describe('回归 · 异常与安全边界', () => {
     expect(job.items[0]!.error?.code).toBe('E_SOURCE_TOO_LARGE');
   }, 30_000);
 
-  it('转换中途 cancelAll：在跑任务被杀 + 等待队列清空，全部失败且带「用户取消」', async () => {
+  it('转换中途 cancelAll：在跑任务被杀 + 等待队列清空，全部失败且统一 E_CANCELLED 口径（D35）', async () => {
     const srcDir = join(workspace, 'src-cancel');
     mkdirSync(srcDir);
     // ~4MB 段落文（典型密度 ≈ 数秒），保证取消窗口充足
@@ -170,12 +171,39 @@ describe('回归 · 异常与安全边界', () => {
     expect(job.items).toHaveLength(2);
     for (const item of job.items) {
       expect(item.ok).toBe(false);
-      expect(item.error?.message).toContain('取消');
+      // 在跑任务（core abort）与待执行任务（队列拒绝）统一映射为 E_CANCELLED「转换已被取消。」
+      expect(item.error?.code).toBe('E_CANCELLED');
+      expect(item.error?.message).toBe('转换已被取消。');
     }
     // 队列清空后可继续接受新作业（取消不损坏服务）
     const next = await services.convert.run([{ name: 'after.md', path: join(srcDir, 'c1.md') }], {});
     expect(next.items[0]!.ok).toBe(true);
   }, 60_000);
+
+  it('D34：启动清扫 userData/jobs 历史作业目录（注册表内存态，重启后不可达即垃圾）', async () => {
+    const jobsRoot = join(workspace, 'userdata', 'jobs');
+    const stale = join(jobsRoot, 'stale-job');
+    mkdirSync(stale, { recursive: true });
+    writeFileSync(join(stale, 'a.docx'), 'PK');
+    writeFileSync(join(jobsRoot, 'loose-file.txt'), 'x');
+    // beforeEach 已创建过一次 services（此刻清扫空目录）；重建以验证清扫真实生效
+    const fresh = await createServices(
+      { userDataDir: join(workspace, 'userdata'), resourcesDir: workspace, isPackaged: false },
+      { kvStore: new MemoryKvStore() },
+    );
+    expect(readdirSync(jobsRoot)).toEqual([]);
+    expect(fresh.convert.pendingCount).toBe(0);
+  });
+
+  it('D34：纯 path 模式转换不创建作业目录（不再留空 UUID 目录）', async () => {
+    const srcDir = join(workspace, 'src-nodir');
+    mkdirSync(srcDir);
+    copyFileSync(SAMPLE, join(srcDir, 'basic-zh.md'));
+    const job = await services.convert.run([{ name: 'basic-zh.md', path: join(srcDir, 'basic-zh.md') }], {});
+    expect(job.items[0]!.ok).toBe(true);
+    // 无 bytes 条目 → 连 jobs 根目录都不需要创建
+    expect(existsSync(join(workspace, 'userdata', 'jobs'))).toBe(false);
+  });
 
   it('template:add 穿越名清洗：../evil.docx 与 a/b.docx 均落 templates 根目录', () => {
     const BUILTIN = join(REPO, 'packages', 'core', 'assets', 'reference-zh.docx');

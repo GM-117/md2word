@@ -4,7 +4,7 @@ import { LogBuffer } from './services/logger.js';
 import { SettingsService, type KvStore } from './services/settings.js';
 import { TemplateService } from './services/templates.js';
 import { JobRegistry } from './services/jobs.js';
-import { ConvertService } from './services/convert.js';
+import { ConvertService, sweepStaleJobDirs } from './services/convert.js';
 import { createKvStore } from './services/electronStoreAdapter.js';
 
 export interface AppPaths {
@@ -46,6 +46,7 @@ export async function createServices(paths: AppPaths, opts: CreateServicesOption
 
   const templates = new TemplateService(join(paths.userDataDir, 'templates'), builtinTemplatePath, settings, logger);
   const registry = new JobRegistry();
+  sweepStaleJobDirs(join(paths.userDataDir, 'jobs'), (msg) => logger.info(msg));
   const convert = new ConvertService(
     join(paths.userDataDir, 'jobs'),
     registry,

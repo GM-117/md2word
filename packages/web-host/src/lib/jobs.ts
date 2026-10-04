@@ -1,7 +1,7 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { SerialQueue, convertMarkdown } from '@md2word/core';
+import { CANCEL_REASON, SerialQueue, convertMarkdown } from '@md2word/core';
 import type { ConvertOptions, ConvertResult } from '@md2word/core';
 import type { LogBuffer } from './logger.js';
 
@@ -48,10 +48,28 @@ export class JobManager {
     private readonly logger: LogBuffer,
   ) {
     mkdirSync(this.jobsRoot(), { recursive: true });
+    this.sweepStaleJobDirs();
   }
 
   private jobsRoot(): string {
     return join(this.dataDir, 'jobs');
+  }
+
+  /**
+   * 启动清扫（D34）：作业注册表在内存中，重启后历史作业目录全部不可达（下载/打开均被拒），
+   * 属于纯垃圾——启动时整目录清掉，防止 .data/jobs 无限累积占盘。运行期间产生的作业保留至下次启动。
+   */
+  private sweepStaleJobDirs(): void {
+    let removed = 0;
+    try {
+      for (const name of readdirSync(this.jobsRoot())) {
+        rmSync(join(this.jobsRoot(), name), { recursive: true, force: true });
+        removed += 1;
+      }
+    } catch {
+      // 清扫失败不阻断启动
+    }
+    if (removed > 0) this.logger.info(`startup sweep: removed ${removed} stale job dir(s)`);
   }
 
   get pendingCount(): number {
@@ -116,14 +134,19 @@ export class JobManager {
         },
       }).catch((err: unknown) => {
         item.phase = 'failed';
+        // 整队取消的待执行任务以 rejection 落到这里：与在跑任务的 E_CANCELLED 统一口径
+        const message = err instanceof Error ? err.message : String(err);
         item.result = {
           ok: false,
           durationMs: 0,
           warnings: [],
           name: item.name,
-          error: { code: 'E_PANDOC_FAILED', message: err instanceof Error ? err.message : String(err) },
+          error:
+            message === CANCEL_REASON
+              ? { code: 'E_CANCELLED', message: '转换已被取消。' }
+              : { code: 'E_PANDOC_FAILED', message },
         };
-        this.logger.error(`convert threw: ${item.name} ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.error(`convert threw: ${item.name} ${message}`);
       }),
     );
 
@@ -139,7 +162,7 @@ export class JobManager {
   /** 取消当前 + 清空等待 */
   cancelAll(): number {
     this.logger.warn('cancel requested: aborting running conversion and clearing queue');
-    return this.queue.cancelAll('用户取消');
+    return this.queue.cancelAll(CANCEL_REASON);
   }
 
   /** 作业目录（供下载/打开路由做白名单校验） */

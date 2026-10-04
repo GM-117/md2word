@@ -10,6 +10,8 @@ interface RowState {
   jobId?: string;
   /** 重试数据源：该行的原始文件条目（桌面端为真实路径，网页端为 File 对象） */
   entry?: ConvertEntryPayload;
+  /** 已被重试过（新结果已另起一行）：不计入"重试失败项"，避免重复点击重复建任务（D35） */
+  retried?: boolean;
 }
 
 const HIGHLIGHT_OPTIONS = ['pygments', 'tango', 'espresso', 'zenburn', 'kate', 'monochrome'];
@@ -366,10 +368,12 @@ export function App() {
     await runConversion(mdEntries, resourceEntries);
   }, [runConversion, showToast]);
 
-  /** M6 重试：用该行原始文件条目按当前选项重新转换 */
+  /** M6 重试：用该行原始文件条目按当前选项重新转换；旧行标记"已重试"不再计入重试计数（D35） */
   const retryRows = useCallback(async (rowsToRetry: RowState[]) => {
     const entries = rowsToRetry.map((r) => r.entry).filter((e): e is ConvertEntryPayload => Boolean(e));
     if (entries.length === 0) return;
+    const keys = new Set(rowsToRetry.map((r) => r.key));
+    setRows((prev) => prev.map((r) => (keys.has(r.key) ? { ...r, retried: true } : r)));
     await runConversion(entries);
   }, [runConversion]);
 
@@ -450,7 +454,7 @@ export function App() {
   */
 
   const doneCount = rows.filter((r) => r.status === 'done').length;
-  const failedRows = rows.filter((r) => r.status === 'failed' && r.entry);
+  const failedRows = rows.filter((r) => r.status === 'failed' && r.entry && !r.retried);
 
   return (
     <main className="shell">
@@ -795,7 +799,7 @@ export function App() {
                       <summary>错误详情（错误码 {row.result?.error?.code}）</summary>
                       <pre>{row.result?.error?.stderrTail ?? '（无 pandoc 原文）'}</pre>
                     </details>
-                    {row.entry && !busy && (
+                    {row.entry && !busy && !row.retried && (
                       <div className="actions">
                         <button
                           type="button"
@@ -806,6 +810,9 @@ export function App() {
                           重试
                         </button>
                       </div>
+                    )}
+                    {row.retried && (
+                      <p className="hint">已重新转换，结果见列表最新行。</p>
                     )}
                   </div>
                 )}

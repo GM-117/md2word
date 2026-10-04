@@ -115,14 +115,54 @@ test.describe('M6 批量转换', () => {
     const retryBtn = failedRow.getByRole('button', { name: '重试', exact: true });
     await expect(retryBtn).toBeVisible();
 
-    // 直接重试仍失败（产物还在）；勾选覆盖后重试成功
+    // 直接重试仍失败（产物还在）；旧失败行标记"已重试"：不重复计数、按钮隐藏（D35）
+    // 注意：重试后新行插到最前，.first() 指向新失败行，旧行用 .nth(1) 定位
     await retryBtn.click();
     const retriedRow = win.locator('.queue .row', { hasText: 'basic-zh.md' }).first();
     await expect(retriedRow).toHaveClass(/failed/, { timeout: 60_000 });
+    const oldRow = win.locator('.queue .row', { hasText: 'basic-zh.md' }).nth(1);
+    await expect(win.getByText('重试失败项（1）')).toBeVisible(); // 旧失败行不再计入（否则会显示 2）
+    await expect(oldRow.getByRole('button', { name: '重试', exact: true })).toHaveCount(0);
+    await expect(oldRow).toContainText('已重新转换');
 
+    // 勾选"覆盖同名输出"后重试 → 成功，重试入口消失
     const overwrite = win.locator('.opt', { hasText: '覆盖同名输出' }).locator('input');
     await overwrite.check();
     await retriedRow.getByRole('button', { name: '重试', exact: true }).click();
     await expect(win.locator('.queue .row', { hasText: 'basic-zh.md' }).first()).toHaveClass(/done/, { timeout: 60_000 });
+    await expect(win.getByText(/重试失败项/)).toHaveCount(0);
+  });
+
+  test('取消批量（D35）：剩余项统一 E_CANCELLED，重试计数随重试消解、可一键重试成功', async () => {
+    // 5 个 ~4MB 文件（单个 ≈2s，串行 ≈10s）；结果整批返回（行内无中间态），
+    // 因此"取消转换"按钮一出现立即点击——必然落在首个 2s 转换窗口内
+    const srcDir = join(workspace, 'cancel-batch');
+    mkdirSync(srcDir, { recursive: true });
+    const big = '# 大文件\n\n' + '这是一个足够长的段落用于拖慢转换速度。\n\n'.repeat(60_000);
+    const paths: string[] = [];
+    for (let i = 1; i <= 5; i += 1) {
+      const p = join(srcDir, `big-${i}.md`);
+      writeFileSync(p, big, 'utf8');
+      paths.push(p);
+    }
+
+    await win.locator('.dropzone input[type=file]').setInputFiles(paths);
+    const cancelBtn = win.getByRole('button', { name: '取消转换' });
+    await expect(cancelBtn).toBeVisible({ timeout: 60_000 });
+    await cancelBtn.click();
+
+    // 全部失败且统一为 E_CANCELLED「转换已被取消。」（不再出现裸「用户取消」）
+    const failedRows = win.locator('.queue .row.failed', { hasText: 'E_CANCELLED' });
+    await expect(failedRows).toHaveCount(5, { timeout: 60_000 });
+    await expect(win.getByText('重试失败项（5）')).toBeVisible();
+
+    // 一键重试 → 全部成功；旧失败行标记"已重试"，重试入口消失（不可重复点击建任务）
+    await win.getByRole('button', { name: /重试失败项/ }).click();
+    for (let i = 1; i <= 5; i += 1) {
+      await expect(win.locator('.queue .row', { hasText: `big-${i}.md` }).first()).toHaveClass(/done/, {
+        timeout: 60_000,
+      });
+    }
+    await expect(win.getByText(/重试失败项/)).toHaveCount(0);
   });
 });

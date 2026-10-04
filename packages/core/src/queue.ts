@@ -2,6 +2,10 @@
  * 串行任务队列：宿主（web-host / desktop）用它保证同一时刻至多一个 pandoc 在跑，
  * 任务间互不干扰；支持清空待执行任务与整队取消（convert:cancel 通道）。
  */
+
+/** 整队取消的统一原因（宿主传入；被拒任务以此识别"用户取消"→ E_CANCELLED） */
+export const CANCEL_REASON = '用户取消';
+
 export interface QueueTask<T> {
   run: (signal: AbortSignal) => Promise<T>;
   /** 任务标签（日志/展示用，如源文件路径） */

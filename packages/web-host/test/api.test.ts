@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -51,6 +51,24 @@ describe('GET /api/health', () => {
     const body = res.json() as { ok: boolean; name: string; pandoc: { version: string } | null };
     expect(body.ok).toBe(true);
     expect(body.pandoc?.version).toBe('3.12');
+  });
+});
+
+describe('D34 启动清扫（.data/jobs 磁盘占用）', () => {
+  it('启动时清除 jobs 目录下全部历史作业（注册表内存态，重启后不可达即垃圾）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'md2word-host-sweep-'));
+    try {
+      const stale = join(dir, 'jobs', '0ab1bbe3-stale', 'tests');
+      mkdirSync(stale, { recursive: true });
+      writeFileSync(join(stale, 'a.docx'), 'PK');
+      writeFileSync(join(dir, 'jobs', 'loose.txt'), 'x');
+      const created = await createServer({ dataDir: dir });
+      await created.app.ready();
+      expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+      await created.app.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
