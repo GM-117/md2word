@@ -202,6 +202,6 @@ describe('回归 · 异常与安全边界', () => {
     const jobId = reg.createJob(join(workspace, 'jobs-x'));
     expect(reg.resolve('not-a-job', 'a.md')).toBeNull();
     expect(reg.resolve(jobId, '未登记.md')).toBeNull();
-    expect(reg.resolveByBasename(jobId, 'whatever.docx')).toBeNull();
+    expect(reg.resolveKey(jobId, 'whatever.docx')).toBeNull();
   });
 });

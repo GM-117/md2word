@@ -27,6 +27,8 @@ export interface ConvertItemResult {
   warnings: ConvertWarning[];
   error?: { code: string; message: string; stderrTail?: string };
   name: string;
+  /** open/download 共用的登记键（M6：文件夹批量下重名产物唯一化；web 端与桌面端语义一致） */
+  outputKey?: string;
   downloadUrl?: string;
 }
 
@@ -69,6 +71,15 @@ export interface ApiTransport {
   health(): Promise<Health>;
   /** 一次作业：files[0..n] 中的 .md 参与转换，其余文件作为资源随作业保存（供相对路径引用） */
   convert(files: File[], options: ConvertOptionsPayload): Promise<JobResult>;
+  /**
+   * M6 批量转换：已备好的文件条目（name 可为含子目录的相对路径，file 为网页端 File 源）。
+   * 与 convert 的差别：桌面端文件夹批量已持有真实路径（path 模式），跳过 getPathForFile 探测。
+   */
+  convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult>;
+  /** M6（仅桌面）：原生文件夹选择对话框；用户取消返回 ok:false */
+  pickFolder?(): Promise<{ ok: boolean; path?: string }>;
+  /** M6（仅桌面）：递归扫描文件夹（排除隐藏/非 .md/node_modules）；无 .md 或路径非法时抛错 */
+  scanFolder?(folderPath: string): Promise<FolderScanResult>;
   getSettings(): Promise<Settings>;
   saveSettings(patch: Settings): Promise<Settings>;
   exportLogUrl(): string;
@@ -87,6 +98,21 @@ export interface ApiTransport {
   deleteTemplate(name: string): Promise<boolean>;
 }
 
+/** M6 批量条目：path（桌面真实文件）与 file（网页 File 对象）二选一 */
+export interface ConvertEntryPayload {
+  name: string;
+  path?: string;
+  file?: File;
+}
+
+/** M6：文件夹扫描结果（桌面端 IPC 返回结构） */
+export interface FolderScanResult {
+  root: string;
+  files: Array<{ path: string; relPath: string }>;
+  truncated: boolean;
+  scannedDirs: number;
+}
+
 export class HttpTransport implements ApiTransport {
   async health(): Promise<Health> {
     const r = await fetch('/api/health');
@@ -95,8 +121,16 @@ export class HttpTransport implements ApiTransport {
   }
 
   async convert(files: File[], options: ConvertOptionsPayload): Promise<JobResult> {
+    return this.convertEntries(files.map((f) => ({ name: f.name, file: f })), options);
+  }
+
+  async convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult> {
     const form = new FormData();
-    for (const f of files) form.append('files', f, f.name);
+    for (const e of entries) {
+      if (!e.file) throw new Error(`网页端仅支持文件上传（${e.name} 缺少文件内容）`);
+      // 文件名 URI 编码以保留相对路径（服务端解码还原；busboy 会把裸 filename 扒平成 basename）
+      form.append('files', e.file, encodeURIComponent(e.name));
+    }
     form.append('options', JSON.stringify(options));
     const r = await fetch('/api/convert', { method: 'POST', body: form });
     const body = (await r.json()) as JobResult & { ok?: boolean; error?: string };
@@ -177,6 +211,10 @@ export interface Md2WordBridge {
     options: ConvertOptionsPayload,
   ): Promise<JobResult>;
   cancel(): Promise<{ ok: boolean; cancelled?: number }>;
+  /** M6：原生文件夹选择对话框（用户取消 → ok:false） */
+  pickFolder(): Promise<{ ok: boolean; path?: string }>;
+  /** M6：递归扫描文件夹（排除隐藏/非 .md/node_modules）；无 .md 或路径非法时抛错 */
+  scanFolder(folderPath: string): Promise<FolderScanResult>;
   getSettings(): Promise<Settings>;
   saveSettings(patch: Settings): Promise<Settings>;
   open(jobId: string, name: string, folder: boolean): Promise<boolean>;
@@ -211,15 +249,31 @@ export class IpcTransport implements ApiTransport {
   }
 
   async convert(files: File[], options: ConvertOptionsPayload): Promise<JobResult> {
+    return this.convertEntries(files.map((f) => ({ name: f.name, file: f })), options);
+  }
+
+  async convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult> {
     // path 模式优先（真实文件：直接从源位置转换，产物写源目录）；取不到路径时回退字节通道
-    const entries = await Promise.all(
-      files.map(async (f) => {
-        const path = bridge().getPathForFile(f);
-        if (path) return { name: f.name, path };
-        return { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) };
+    const payloads = await Promise.all(
+      entries.map(async (e) => {
+        if (e.path) return { name: e.name, path: e.path };
+        if (e.file) {
+          const path = bridge().getPathForFile(e.file);
+          if (path) return { name: e.name, path };
+          return { name: e.name, bytes: new Uint8Array(await e.file.arrayBuffer()) };
+        }
+        return { name: e.name }; // 无内容 → 服务端报 E_SOURCE_NOT_FOUND
       }),
     );
-    return bridge().convert(entries, options);
+    return bridge().convert(payloads, options);
+  }
+
+  async pickFolder(): Promise<{ ok: boolean; path?: string }> {
+    return bridge().pickFolder();
+  }
+
+  async scanFolder(folderPath: string): Promise<FolderScanResult> {
+    return bridge().scanFolder(folderPath);
   }
 
   async getSettings(): Promise<Settings> {

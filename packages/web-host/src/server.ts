@@ -74,7 +74,8 @@ export async function createServer(opts: CreateServerOptions = {}) {
 
   const app = fastify({ logger: false, bodyLimit: 64 * 1024 * 1024 });
   await app.register(multipart, {
-    limits: { fileSize: 64 * 1024 * 1024, files: 50 },
+    // M6：文件夹批量（webkitdirectory）单请求可能携带数百个文件，上限 50 → 1000
+    limits: { fileSize: 64 * 1024 * 1024, files: 1000 },
   });
 
   // ---- 健康检查 ----
@@ -186,19 +187,49 @@ export async function createServer(opts: CreateServerOptions = {}) {
     const names: string[] = [];
     let options: ConvertOptions = {};
 
+    /** 相对路径安全化（M6 文件夹批量）：仅保留合法段，非法（穿越/空段）返回 null 走平铺回退 */
+    const sanitizeRel = (raw: string): string | null => {
+      const segments = raw.split(/[\\/]/);
+      if (segments.some((s) => s === '' || s === '.' || s === '..' || s.includes('\0'))) return null;
+      return segments.join('/');
+    };
+
+    /** 在作业目录内按相对路径镜像落盘（目录按需创建）；返回最终相对名 */
+    const stageAt = (rel: string, buf: Buffer): string => {
+      const dest = join(jobDir, rel);
+      if (!dest.startsWith(jobDir)) return '';
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, buf);
+      return rel;
+    };
+
     for await (const part of parts) {
       if (part.type === 'file') {
-        const safeName = (part.filename ?? '').split(/[\\/]/).pop() ?? part.filename;
-        const { writeFileSync } = await import('node:fs');
+        // 渲染层对文件名做 URI 编码以保留相对路径（busboy 会把 filename 扒平成 basename）；
+        // 非编码名（含 % 字面量的普通名）解码失败时原样保留
+        let rawName = part.filename ?? '';
+        try {
+          rawName = decodeURIComponent(rawName);
+        } catch {
+          /* 保留原样 */
+        }
+        const safeName = rawName.split(/[\\/]/).pop() ?? rawName;
         const buf = await part.toBuffer();
         if (/\.(md|markdown|mdown|mkd)$/i.test(safeName)) {
-          let finalName = safeName;
+          // md 按原始相对路径镜像落盘：文件夹批量下 md 内的相对引用（图片/链接资源）保持可解析
+          const rel = sanitizeRel(rawName) ?? safeName;
+          let finalName = rel;
           let n = 1;
-          while (names.includes(finalName)) finalName = `${++n}-${safeName}`;
-          writeFileSync(join(jobDir, finalName), buf);
+          while (names.includes(finalName)) finalName = `${++n}-${rel}`;
+          if (!stageAt(finalName, buf)) continue;
           names.push(finalName);
-        } else {
-          writeFileSync(join(jobDir, safeName), buf);
+        } else if (buf.length > 0) {
+          const rel = sanitizeRel(rawName);
+          if (rel) {
+            stageAt(rel, buf); // 资源同样镜像落盘，维持相对目录结构
+          } else {
+            writeFileSync(join(jobDir, safeName), buf);
+          }
         }
       } else if (part.fieldname === 'options') {
         try {
@@ -246,18 +277,15 @@ export async function createServer(opts: CreateServerOptions = {}) {
   // ---- 下载产物 ----
   app.get('/api/download/:jobId/:name', async (req, reply) => {
     const { jobId, name } = req.params as { jobId: string; name: string };
-    const dir = jobs.jobDir(jobId);
-    if (!dir) {
-      reply.code(404);
-      return { ok: false, error: '作业不存在或已清理' };
-    }
-    const file = join(dir, decodeURIComponent(name));
-    if (!file.startsWith(dir) || !existsSync(file)) {
+    const key = decodeURIComponent(name);
+    // M6：产物可能位于作业目录的子目录（文件夹批量镜像落盘），按登记键解析真实路径
+    const file = jobs.findOutputPath(jobId, key);
+    if (!file || !file.startsWith(jobs.jobDir(jobId) ?? '\0') || !existsSync(file)) {
       reply.code(404);
       return { ok: false, error: '产物不存在' };
     }
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(key)}`);
     return reply.send(createReadStream(file));
   });
 

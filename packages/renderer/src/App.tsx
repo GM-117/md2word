@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { transport, isDesktop, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo, type TemplateStyleSummary } from './lib/transport';
+import { isBatchMarkdownPath } from '@md2word/core/mdfilter';
+import { transport, isDesktop, type ConvertEntryPayload, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo, type TemplateStyleSummary } from './lib/transport';
 
 interface RowState {
   key: string;
@@ -7,6 +8,8 @@ interface RowState {
   status: 'converting' | 'done' | 'failed';
   result?: ConvertItemResult;
   jobId?: string;
+  /** 重试数据源：该行的原始文件条目（桌面端为真实路径，网页端为 File 对象） */
+  entry?: ConvertEntryPayload;
 }
 
 const HIGHLIGHT_OPTIONS = ['pygments', 'tango', 'espresso', 'zenburn', 'kate', 'monochrome'];
@@ -158,6 +161,7 @@ export function App() {
   const [tplSummary, setTplSummary] = useState<TemplateStyleSummary | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -251,17 +255,8 @@ export function App() {
     void transport.saveSettings(settingsPatch).catch(() => undefined);
   }, []);
 
-  const convertFiles = useCallback(async (fileList: FileList | File[]) => {
-    const all = Array.from(fileList);
-    const mdFiles = all.filter((f) => /\.(md|markdown|mdown|mkd)$/i.test(f.name));
-    const resourceFiles = all.filter((f) => !/\.(md|markdown|mdown|mkd)$/i.test(f.name));
-    if (mdFiles.length === 0) {
-      setLog(['未选择任何 .md 文件（支持 .md/.markdown/.mdown/.mkd）；其余文件已忽略。']);
-      return;
-    }
-    setBusy(true);
-    setLog(null);
-    // 转换前把当前选项完整落盘（白名单键，避免垃圾键写入 settings），并消除保存与转换的竞态
+  /** 转换前把当前选项完整落盘（白名单键，避免垃圾键写入 settings），并消除保存与转换的竞态 */
+  const persistOptions = useCallback(async () => {
     try {
       await transport.saveSettings({
         toc: optionsRef.current.toc ?? false,
@@ -275,25 +270,26 @@ export function App() {
         metaAuthor: optionsRef.current.metadata?.author ?? '',
       });
     } catch { /* 保存失败不阻断转换 */ }
-    const newKeys = mdFiles.map((f) => ({ key: `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: f.name }));
+  }, []);
+
+  /** 共用批量转换流（M6）：单文件/多文件/文件夹批量/重试都走这里 */
+  const runConversion = useCallback(async (rowEntries: ConvertEntryPayload[], extraEntries: ConvertEntryPayload[] = []) => {
+    if (rowEntries.length === 0) return;
+    setBusy(true);
+    setLog(null);
+    await persistOptions();
+    const newKeys = rowEntries.map((e) => ({ key: `${e.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: e.name, entry: e }));
     // 最新转换显示在列表首位（无需下滚找最新结果）
     setRows((prev) => [
       ...newKeys.map((k) => ({ ...k, status: 'converting' as const })),
       ...prev,
     ]);
-    /* 最近文件暂时隐藏（可按需恢复）
-    setRecentFiles((prev) => {
-      const next = [...mdFiles.map((f) => f.name), ...prev.filter((n) => !mdFiles.some((f) => f.name === n))].slice(0, 10);
-      void transport.saveSettings({ recentFiles: next }).catch(() => undefined);
-      return next;
-    });
-    */
 
     try {
       // options 只传转换语义键：template 已换名为 defaultTemplate 设置，由服务端解析模板路径
       const { template: _tpl, ...convertOptions } = optionsRef.current;
       void _tpl;
-      const job = await transport.convert([...mdFiles, ...resourceFiles], convertOptions);
+      const job = await transport.convertEntries([...rowEntries, ...extraEntries], convertOptions);
       setRows((prev) => prev.map((r) => {
         const idx = newKeys.findIndex((k) => k.key === r.key);
         if (idx === -1) return r;
@@ -315,7 +311,67 @@ export function App() {
       )));
     }
     setBusy(false);
-  }, []);
+  }, [persistOptions]);
+
+  const convertFiles = useCallback(async (fileList: FileList | File[]) => {
+    const all = Array.from(fileList);
+    const mdFiles = all.filter((f) => /\.(md|markdown|mdown|mkd)$/i.test(f.name));
+    const resourceFiles = all.filter((f) => !/\.(md|markdown|mdown|mkd)$/i.test(f.name));
+    if (mdFiles.length === 0) {
+      setLog(['未选择任何 .md 文件（支持 .md/.markdown/.mdown/.mkd）；其余文件已忽略。']);
+      return;
+    }
+    await runConversion(
+      mdFiles.map((f) => ({ name: f.name, file: f })),
+      resourceFiles.map((f) => ({ name: f.name, file: f })),
+    );
+  }, [runConversion]);
+
+  /** M6 桌面端：原生文件夹选择 → 递归扫描（排除隐藏/非 .md/node_modules）→ 批量转换 */
+  const convertFolderDesktop = useCallback(async () => {
+    if (busy || !transport.pickFolder || !transport.scanFolder) return;
+    try {
+      const picked = await transport.pickFolder();
+      if (!picked.ok || !picked.path) return;
+      setBusy(true);
+      const scan = await transport.scanFolder(picked.path);
+      setBusy(false);
+      showToast(scan.truncated
+        ? `文件夹内 .md 超过扫描上限，仅转换前 ${scan.files.length} 个`
+        : `已发现 ${scan.files.length} 个 .md 文件，开始转换…`);
+      await runConversion(scan.files.map((f) => ({ name: f.relPath, path: f.path })));
+    } catch (err) {
+      setBusy(false);
+      const message = err instanceof Error ? err.message : String(err);
+      setLog([message]);
+    }
+  }, [busy, runConversion, showToast]);
+
+  /** M6 网页端：webkitdirectory 目录选择 → 客户端过滤（与桌面扫描同口径）→ 批量上传转换 */
+  const convertFolderWeb = useCallback(async (fileList: FileList) => {
+    const all = Array.from(fileList);
+    const relPathOf = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+    const mdEntries: ConvertEntryPayload[] = [];
+    const resourceEntries: ConvertEntryPayload[] = [];
+    for (const f of all) {
+      const rel = relPathOf(f);
+      if (isBatchMarkdownPath(rel)) mdEntries.push({ name: rel, file: f });
+      else if (!/\.(md|markdown|mdown|mkd)$/i.test(f.name)) resourceEntries.push({ name: rel, file: f });
+    }
+    if (mdEntries.length === 0) {
+      setLog(['该文件夹内没有找到 .md 文件（已跳过隐藏文件与 node_modules）。']);
+      return;
+    }
+    showToast(`已发现 ${mdEntries.length} 个 .md 文件，开始转换…`);
+    await runConversion(mdEntries, resourceEntries);
+  }, [runConversion, showToast]);
+
+  /** M6 重试：用该行原始文件条目按当前选项重新转换 */
+  const retryRows = useCallback(async (rowsToRetry: RowState[]) => {
+    const entries = rowsToRetry.map((r) => r.entry).filter((e): e is ConvertEntryPayload => Boolean(e));
+    if (entries.length === 0) return;
+    await runConversion(entries);
+  }, [runConversion]);
 
   const importTemplate = useCallback(async (file: File) => {
     setTemplateMsg(null);
@@ -330,7 +386,8 @@ export function App() {
 
   const openResult = useCallback(async (row: RowState, folder: boolean) => {
     if (!row.jobId || !row.result) return;
-    await transport.open(row.jobId, row.result.name, folder);
+    // M6：open/download 共用登记键 outputKey（重名产物唯一化）；旧结果回退 name
+    await transport.open(row.jobId, row.result.outputKey ?? row.result.name, folder);
   }, []);
 
   const clearRows = useCallback(() => { if (!busy) setRows([]); }, [busy]);
@@ -393,6 +450,7 @@ export function App() {
   */
 
   const doneCount = rows.filter((r) => r.status === 'done').length;
+  const failedRows = rows.filter((r) => r.status === 'failed' && r.entry);
 
   return (
     <main className="shell">
@@ -476,7 +534,32 @@ export function App() {
             <span className="drop-ico" aria-hidden="true"><IconDocArrow /></span>
             <span className="dropzone-main">把 .md 拖到这里</span>
             <span className="dropzone-sub">可连同图片资源一起拖入；或点击选择文件</span>
-            <span className="button primary">选择文件（可多选）</span>
+            <span className="dropzone-actions">
+              <span className="button primary">选择文件（可多选）</span>
+              {isDesktop ? (
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  aria-label="选择文件夹（批量）"
+                  title="选择一个文件夹，递归转换其中全部 .md（含子目录，跳过隐藏文件与 node_modules）"
+                  onClick={(e) => { e.preventDefault(); void convertFolderDesktop(); }}
+                >
+                  选择文件夹（批量）
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  aria-label="选择文件夹（批量）"
+                  title="选择一个文件夹，递归转换其中全部 .md（含子目录，跳过隐藏文件与 node_modules）"
+                  onClick={(e) => { e.preventDefault(); folderInputRef.current?.click(); }}
+                >
+                  选择文件夹（批量）
+                </button>
+              )}
+            </span>
             <input
               type="file"
               multiple
@@ -484,6 +567,17 @@ export function App() {
               onChange={(e) => { if (e.target.files) void convertFiles(e.target.files); e.target.value = ''; }}
             />
           </label>
+          {!isDesktop && (
+            // 网页端目录选择（Chromium）：全部文件带 webkitRelativePath，客户端过滤后上传，服务端镜像落盘
+            <input
+              ref={folderInputRef}
+              type="file"
+              className="visually-hidden-input"
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+              aria-label="选择要批量转换的文件夹"
+              onChange={(e) => { if (e.target.files && e.target.files.length > 0) void convertFolderWeb(e.target.files); e.target.value = ''; }}
+            />
+          )}
 
           <div className="panel">
             <h2><span className="panel-icon" aria-hidden="true"><IconSliders /></span>转换选项</h2>
@@ -629,7 +723,17 @@ export function App() {
             <span className="queue-head-tools">
               {rows.length > 0 && (
                 <>
-                  <span className="queue-count">{rows.length} 项 · 成功 {doneCount}</span>
+                  <span className="queue-count">{rows.length} 项 · 成功 {doneCount}{failedRows.length > 0 ? ` · 失败 ${failedRows.length}` : ''}</span>
+                  {failedRows.length > 0 && !busy && (
+                    <button
+                      type="button"
+                      className="button ghost small"
+                      title="用当前选项重新转换全部失败项"
+                      onClick={() => void retryRows(failedRows)}
+                    >
+                      重试失败项（{failedRows.length}）
+                    </button>
+                  )}
                   <button type="button" className="button ghost small" onClick={clearRows} disabled={busy}>清空</button>
                 </>
               )}
@@ -640,7 +744,7 @@ export function App() {
               <div className="empty">
                 <EmptyArt />
                 <p className="empty-title">队列为空</p>
-                <p className="empty-desc">把 .md 文件拖到左侧虚线区域，或点击「选择文件」开始转换；完成后可在此下载 Word 文档。</p>
+                <p className="empty-desc">把 .md 文件拖到左侧虚线区域，或点击「选择文件 / 选择文件夹」开始转换；批量时逐个给出成功/失败结果。</p>
                 <ol className="steps">
                   <li><span className="step-n" aria-hidden="true">1</span>拖入或选择文件</li>
                   <li><span className="step-n" aria-hidden="true">2</span>按需调整选项</li>
@@ -691,6 +795,18 @@ export function App() {
                       <summary>错误详情（错误码 {row.result?.error?.code}）</summary>
                       <pre>{row.result?.error?.stderrTail ?? '（无 pandoc 原文）'}</pre>
                     </details>
+                    {row.entry && !busy && (
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className="button small"
+                          title="用当前选项重新转换该文件"
+                          onClick={() => void retryRows([row])}
+                        >
+                          重试
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </article>

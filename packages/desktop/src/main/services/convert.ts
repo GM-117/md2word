@@ -34,6 +34,8 @@ export interface ConvertItemResult {
   warnings: Array<{ code: string; message: string; detail?: string }>;
   error?: { code: string; message: string; stderrTail?: string };
   name: string;
+  /** open/download 共用的登记键（唯一化产物 basename；文件夹批量下重名产物加 N- 前缀） */
+  outputKey?: string;
   downloadUrl?: string;
 }
 
@@ -54,7 +56,8 @@ interface PreparedMd {
  * 转换服务（IPC convert:file / convert:batch 的实现）：
  * - path 模式：直接从源位置转换，产物写源文件同目录（桌面语义），尊重"覆盖同名输出"开关；
  * - bytes 模式：与 web-host 上传等价，staged 到作业目录，产物落作业目录（覆盖写）；
- * - 设置合并 / 模板解析链与 web-host 完全一致；串行队列失败不中断。
+ * - 设置合并 / 模板解析链与 web-host 完全一致；串行队列失败不中断；
+ * - M6：entry.name 允许含子目录的展示名（文件夹批量），产物登记键唯一化（重名产物加 N- 前缀）。
  */
 export class ConvertService {
   private readonly queue = new SerialQueue();
@@ -86,16 +89,17 @@ export class ConvertService {
     const jobDir = join(this.jobsRoot, randomUUID());
     mkdirSync(jobDir, { recursive: true });
 
-    // 落位：md 与资源分开处理；staged 重名按 web-host 策略加 `N-` 前缀
+    // 落位：md 与资源分开处理；staged 重名按 web-host 策略加 `N-` 前缀。
+    // name 保留调用方给的展示名（文件夹批量时为含子目录的相对路径），落盘名一律取 basename。
     const usedNames = new Set<string>();
     const mdEntries: PreparedMd[] = [];
     for (const entry of all) {
-      const name = basename(String(entry?.name ?? ''));
+      const name = String(entry?.name ?? '').replace(/\0/g, '');
       if (!name || !MD_RE.test(name)) continue;
       if (typeof entry.path === 'string' && entry.path.length > 0) {
         mdEntries.push({ name, srcPath: entry.path, staged: false });
       } else if (entry.bytes instanceof Uint8Array) {
-        const stagedName = dedupeStagedName(usedNames, name);
+        const stagedName = dedupeStagedName(usedNames, basename(name));
         usedNames.add(stagedName);
         const stagedPath = join(jobDir, stagedName);
         writeFileSync(stagedPath, entry.bytes);
@@ -150,7 +154,6 @@ export class ConvertService {
                 signal,
               });
               if (res.ok && res.outputPath) {
-                this.registry.addOutput(jobId, entry.name, res.outputPath);
                 this.logger.info(
                   `convert ok: ${entry.name} → ${res.outputPath} (${res.durationMs}ms, warnings=${res.warnings.length})`,
                 );
@@ -166,7 +169,7 @@ export class ConvertService {
             stats: r.stats,
             warnings: r.warnings,
             ...(r.ok && r.outputPath
-              ? { outputPath: r.outputPath, downloadUrl: buildDownloadUrl(jobId, basename(r.outputPath)) }
+              ? { outputPath: r.outputPath }
               : { error: r.error }),
             name: entry.name,
           };
@@ -182,6 +185,21 @@ export class ConvertService {
         }
       }),
     );
+
+    // 登记产物（键 = 唯一化的产物 basename）：文件夹批量下不同子目录的同名文件
+    // 产物 basename 相同，按完成序加 `N-` 前缀消解，downloadUrl/open 都走该键
+    const usedOutputKeys = new Set<string>();
+    for (const item of items) {
+      if (!(item.ok && item.outputPath)) continue;
+      const base = basename(item.outputPath);
+      let key = base;
+      let n = 1;
+      while (usedOutputKeys.has(key)) key = `${++n}-${base}`;
+      usedOutputKeys.add(key);
+      this.registry.addOutput(jobId, key, item.outputPath);
+      item.outputKey = key;
+      item.downloadUrl = buildDownloadUrl(jobId, key);
+    }
 
     this.recordRecentPaths(mdEntries);
     return { jobId, items };
@@ -199,7 +217,8 @@ export class ConvertService {
       const merged: Record<string, string> = { ...((s.recentPaths ?? {}) as Record<string, string>) };
       let changed = false;
       for (const e of mdEntries) {
-        if (!e.staged && e.srcPath && merged[e.name] !== e.srcPath) {
+        // 仅登记纯 basename 的源（文件夹批量的相对路径名不进最近文件登记表）
+        if (!e.staged && e.srcPath && !e.name.includes('/') && !e.name.includes('\\') && merged[e.name] !== e.srcPath) {
           merged[e.name] = e.srcPath;
           changed = true;
         }

@@ -5,6 +5,16 @@ export { resolvePandocInfo, resetPandocCache, runPandoc } from './pandoc.js';
 export { validateTemplate, getBundledReferenceDocx, augmentTemplateStyles, REQUIRED_STYLES } from './template.js';
 export { openDocx, computeStats, hasNamedStyle, countStyleUsage } from './validate.js';
 export { SerialQueue } from './queue.js';
+export { scanMarkdownFiles, MAX_SCAN_FILES } from './scan.js';
+export type { ScanResult, ScannedFile } from './scan.js';
+export {
+  isBatchMarkdownPath,
+  hasHiddenSegment,
+  hasSkippedSegment,
+  isMarkdownName,
+  MD_EXTENSIONS,
+  SKIPPED_DIRS,
+} from './mdfilter.js';
 export {
   DEFAULT_TIMEOUT_MS,
   MAX_SOURCE_BYTES,

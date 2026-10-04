@@ -6,8 +6,10 @@ import type { ConvertOptions, ConvertResult } from '@md2word/core';
 import type { LogBuffer } from './logger.js';
 
 export interface JobItemResult extends ConvertResult {
-  /** 上传时的原始文件名（含中文/空格/emoji） */
+  /** 上传时的原始文件名（含中文/空格/emoji；文件夹批量为含子目录的相对路径） */
   name: string;
+  /** open/download 共用的登记键（唯一化产物 basename；M6 文件夹批量下重名产物加 N- 前缀） */
+  outputKey?: string;
   /** 下载端点（ok 时存在） */
   downloadUrl?: string;
 }
@@ -29,6 +31,8 @@ export interface JobState {
   jobId: string;
   dir: string;
   items: JobItemState[];
+  /** 本作业已使用的产物登记键（唯一化用） */
+  usedKeys: Set<string>;
 }
 
 /**
@@ -65,9 +69,20 @@ export class JobManager {
       jobId,
       dir,
       items: names.map((name) => ({ name, phase: 'queued' })),
+      usedKeys: new Set<string>(),
     };
     this.jobs.set(jobId, state);
     return state;
+  }
+
+  /** 产物登记键唯一化：同名 basename 按 `N-` 前缀消解（M6 文件夹批量：不同子目录可产出同名 docx） */
+  private uniqueKey(state: JobState, outputPath: string): string {
+    const base = outputPath.split(/[\\/]/).pop()!;
+    let key = base;
+    let n = 1;
+    while (state.usedKeys.has(key)) key = `${++n}-${base}`;
+    state.usedKeys.add(key);
+    return key;
   }
 
   /** 把作业逐项入队（队列内串行执行）；resolve 在全部处理完后触发 */
@@ -82,13 +97,17 @@ export class JobManager {
           this.logger.info(`convert start: ${item.name} (job ${jobId.slice(0, 8)})`);
           const result = await convertMarkdown(srcPath, { ...baseOptions, overwrite: true, signal });
           item.phase = result.ok ? 'done' : 'failed';
-          item.result = {
-            ...result,
-            name: item.name,
-            ...(result.ok
-              ? { downloadUrl: `/api/download/${jobId}/${encodeURIComponent(result.outputPath!.split(/[\\/]/).pop()!)}` }
-              : {}),
-          };
+          if (result.ok) {
+            const key = this.uniqueKey(state, result.outputPath!);
+            item.result = {
+              ...result,
+              name: item.name,
+              outputKey: key,
+              downloadUrl: `/api/download/${jobId}/${encodeURIComponent(key)}`,
+            };
+          } else {
+            item.result = { ...result, name: item.name };
+          }
           if (result.ok) {
             this.logger.info(`convert ok: ${item.name} → ${result.outputPath} (${result.durationMs}ms, warnings=${result.warnings.length})`);
           } else {
@@ -129,12 +148,19 @@ export class JobManager {
     return state ? state.dir : null;
   }
 
-  /** 按上传名查找该作业已生成的产物 docx 路径（"打开/打开所在文件夹"的数据源，D30） */
-  findOutputPath(jobId: string, name: string): string | null {
+  /**
+   * 按登记键（outputKey）解析该作业的产物 docx 路径（下载/open 路由数据源）；
+   * 兼容旧调用：键不匹配时回退按上传名匹配（D30 语义）。
+   */
+  findOutputPath(jobId: string, key: string): string | null {
     const state = this.jobs.get(jobId);
     if (!state) return null;
     for (const item of state.items) {
-      if (item.name === name && item.result?.ok && item.result.outputPath) return item.result.outputPath;
+      if (item.result?.ok && item.result.outputPath) {
+        if ((item.result.outputKey && item.result.outputKey === key) || item.name === key) {
+          return item.result.outputPath;
+        }
+      }
     }
     return null;
   }

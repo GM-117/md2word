@@ -194,7 +194,7 @@ function registerResourceProtocol(): void {
           },
         });
       }
-      const output = svc.registry.resolveByBasename(resource.jobId, resource.name);
+      const output = svc.registry.resolveKey(resource.jobId, resource.name);
       if (!output) {
         svc.logger.warn(`download refused: 未登记的产物 ${resource.jobId}/${resource.name}`);
         return rejected();
@@ -242,7 +242,7 @@ function registerDownloadBehavior(): void {
     const resource = parseResourceUrl(item.getURL());
     if (!resource) return; // 非 md2word 资源走默认行为
     const unregistered =
-      (resource.kind === 'download' && !services?.registry.resolveByBasename(resource.jobId, resource.name)) ||
+      (resource.kind === 'download' && !services?.registry.resolveKey(resource.jobId, resource.name)) ||
       (resource.kind === 'template' && !services?.templates.templateExists(resource.id));
     if (unregistered) {
       services?.logger.warn(`download cancelled (will-download): ${item.getURL()}`);

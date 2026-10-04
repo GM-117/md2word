@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('md2word', {
   health: () => ipcRenderer.invoke('app:health'),
   convert: (entries: unknown, options: unknown) => ipcRenderer.invoke('convert:batch', entries, options),
   cancel: () => ipcRenderer.invoke('convert:cancel'),
+  pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+  scanFolder: (folderPath: string) => ipcRenderer.invoke('convert:scanFolder', folderPath),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (patch: unknown) => ipcRenderer.invoke('settings:set', patch),
   open: (jobId: string, name: string, folder: boolean) => ipcRenderer.invoke('open:path', jobId, name, folder),

@@ -59,7 +59,9 @@ describe('ConvertService path 模式（桌面语义：产物落源目录）', ()
     const url = item.downloadUrl!;
     const parsed = parseResourceUrl(url);
     expect(parsed).toMatchObject({ kind: 'download', jobId: job.jobId, name: '中文 测试.docx' });
-    expect(services.registry.resolve(job.jobId, '中文 测试.md')?.outputPath).toBe(item.outputPath);
+    expect(item.outputKey).toBe('中文 测试.docx');
+    expect(services.registry.resolveKey(job.jobId, item.outputKey!)).toBe(item.outputPath);
+    expect(services.registry.resolve(job.jobId, item.outputKey!)?.outputPath).toBe(item.outputPath);
   });
 
   it('产物已存在且未开覆盖 → E_OUTPUT_EXISTS；开启覆盖后成功', async () => {

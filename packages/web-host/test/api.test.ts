@@ -23,23 +23,26 @@ afterAll(async () => {
 });
 
 // ---- multipart 构造（Node 内置 FormData 不可用于 fastify.inject，手工拼） ----
-function multipart(parts: Array<{ name: string; value?: string; filename?: string; contentType?: string }>): { payload: Buffer; headers: Record<string, string> } {
+function multipart(parts: Array<{ name: string; value?: string | Buffer; filename?: string; contentType?: string }>): { payload: Buffer; headers: Record<string, string> } {
   const boundary = `----md2wordtest${Math.random().toString(36).slice(2)}`;
   const chunks: Buffer[] = [];
   for (const p of parts) {
     chunks.push(Buffer.from(`--${boundary}\r\n`));
     if (p.filename !== undefined) {
       chunks.push(Buffer.from(`Content-Disposition: form-data; name="${p.name}"; filename="${p.filename}"\r\nContent-Type: ${p.contentType ?? 'text/markdown'}\r\n\r\n`));
-      chunks.push(Buffer.from(p.value ?? '', 'utf8'));
+      chunks.push(typeof p.value === 'string' ? Buffer.from(p.value, 'utf8') : (p.value ?? Buffer.alloc(0)));
     } else {
       chunks.push(Buffer.from(`Content-Disposition: form-data; name="${p.name}"\r\n\r\n`));
-      chunks.push(Buffer.from(p.value ?? '', 'utf8'));
+      chunks.push(typeof p.value === 'string' ? Buffer.from(p.value, 'utf8') : Buffer.alloc(0));
     }
     chunks.push(Buffer.from('\r\n'));
   }
   chunks.push(Buffer.from(`--${boundary}--\r\n`));
   return { payload: Buffer.concat(chunks), headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
 }
+
+/** 与渲染层 HttpTransport 一致：文件名 URI 编码以保留相对路径（服务端解码还原） */
+const enc = (name: string): string => encodeURIComponent(name);
 
 describe('GET /api/health', () => {
   it('返回桥接信息与 pandoc sidecar 版本', async () => {
@@ -154,6 +157,80 @@ describe('POST /api/convert（US1：拖拽→转换→结果）', () => {
     ]);
     const res = await app.inject({ method: 'POST', url: '/api/convert', payload, headers });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('M6 文件夹批量（relPath 镜像落盘 + outputKey）', () => {
+  const MD = '# 标题\n\n正文段落，含中文。\n';
+
+  it('嵌套相对路径按镜像落盘：relPath 展示名保留、重名产物唯一键、产物可下载', async () => {
+    const { payload, headers } = multipart([
+      { name: 'files', value: MD, filename: enc('笔记/sub1/a.md') },
+      { name: 'files', value: MD, filename: enc('笔记/sub2/a.md') },
+      { name: 'files', value: MD, filename: enc('笔记/readme.md') },
+      { name: 'options', value: '{}' },
+    ]);
+    const res = await app.inject({ method: 'POST', url: '/api/convert', payload, headers });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      jobId: string;
+      items: Array<{ ok: boolean; name: string; outputKey?: string; downloadUrl?: string }>;
+    };
+    expect(body.items.map((i) => i.name)).toEqual(['笔记/sub1/a.md', '笔记/sub2/a.md', '笔记/readme.md']);
+    expect(body.items.every((i) => i.ok)).toBe(true);
+    // 重名产物（两个 sub 下的 a.md）：outputKey 唯一，downloadUrl 互不相同
+    const keys = body.items.map((i) => i.outputKey!);
+    expect(new Set(keys).size).toBe(3);
+    expect(new Set(body.items.map((i) => i.downloadUrl)).size).toBe(3);
+    expect(keys).toContain('a.docx');
+    expect(keys).toContain('2-a.docx');
+
+    // 每个登记键都可下载合法 zip（产物在镜像子目录内，按键解析而非平铺拼接）
+    for (const item of body.items) {
+      const dl = await app.inject({ method: 'GET', url: item.downloadUrl! });
+      expect(dl.statusCode).toBe(200);
+      expect(dl.rawPayload.subarray(0, 2).toString()).toBe('PK');
+    }
+
+    // open 路由按键解析（outputKey → 产物路径）
+    const openable = await app.inject({
+      method: 'POST',
+      url: `/api/open/${body.jobId}/${encodeURIComponent(body.items[0]!.outputKey!)}`,
+    });
+    expect(openable.statusCode).toBe(200);
+    expect((openable.json() as { ok: boolean }).ok).toBe(true);
+  });
+
+  it('穿越文件名被安全化：../evil.md 回退平铺 staged，不越出作业目录', async () => {
+    const { payload, headers } = multipart([
+      { name: 'files', value: MD, filename: enc('../evil.md') },
+      { name: 'options', value: '{}' },
+    ]);
+    const res = await app.inject({ method: 'POST', url: '/api/convert', payload, headers });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { items: Array<{ ok: boolean; name: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]!.ok).toBe(true);
+    expect(body.items[0]!.name).toBe('evil.md'); // 段被剥掉，落作业目录内
+  });
+
+  it('资源文件镜像落盘保持相对目录结构（相对引用图片可解析）', async () => {
+    // 1x1 透明 PNG（真实字节，pandoc 可完整读取嵌入）
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const md = '# 图\n\n![pic](img/pic.png)\n';
+    const { payload, headers } = multipart([
+      { name: 'files', value: md, filename: enc('doc/note.md') },
+      { name: 'files', value: png, filename: enc('doc/img/pic.png'), contentType: 'image/png' },
+      { name: 'options', value: '{}' },
+    ]);
+    const res = await app.inject({ method: 'POST', url: '/api/convert', payload, headers });
+    const body = res.json() as { items: Array<{ ok: boolean; warnings: Array<{ code: string }> }> };
+    expect(body.items[0]!.ok).toBe(true);
+    // 图片按相对路径解析成功：不出现图片抓取失败警告
+    expect(body.items[0]!.warnings.map((w) => w.code)).not.toContain('W_IMAGE_FETCH');
   });
 });
 

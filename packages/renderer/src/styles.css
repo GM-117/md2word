@@ -343,6 +343,17 @@ input[type="text"]:focus { outline: none; border-color: var(--accent); box-shado
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .dropzone input[type="file"] { display: none; }
+/* M6：拖放区内"选择文件/选择文件夹"并排；网页端目录 input 由 ref 触发，视觉隐藏 */
+.dropzone-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .drop-ico {
   width: 52px;
   height: 52px;

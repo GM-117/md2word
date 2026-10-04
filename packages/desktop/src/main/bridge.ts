@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
-import { ipcMain, shell } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { resolvePandocInfo } from '@md2word/core';
 import type { AppServices } from './context.js';
+import { scanFolderForConvert } from './services/scan.js';
 
 /**
  * IPC 白名单桥（开发计划 §2.1 / M4 计划 §M4-2）。
@@ -30,6 +31,23 @@ export function registerBridge(services: AppServices): void {
   ipcMain.handle('convert:cancel', () => {
     const cancelled = services.convert.cancelAll();
     return { ok: true, cancelled };
+  });
+
+  // M6 批量转换：原生文件夹选择对话框 + 递归扫描（排除隐藏/非 .md/node_modules）
+  ipcMain.handle('dialog:pickFolder', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const opts: Electron.OpenDialogOptions = { title: '选择要批量转换的文件夹', properties: ['openDirectory'] };
+    const picked = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    if (picked.canceled || picked.filePaths.length === 0) return { ok: false };
+    return { ok: true, path: picked.filePaths[0] };
+  });
+
+  ipcMain.handle('convert:scanFolder', (_event, folderPath: unknown) => {
+    const result = scanFolderForConvert(folderPath);
+    services.logger.info(
+      `folder scanned: ${result.root} → ${result.files.length} md file(s), dirs=${result.scannedDirs}${result.truncated ? ' (truncated)' : ''}`,
+    );
+    return result;
   });
 
   ipcMain.handle('settings:get', () => services.settings.all);

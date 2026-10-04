@@ -13,6 +13,7 @@
     "test": "echo 'renderer: E2E 由 Playwright 统一执行（见 M2）' && exit 0"
   },
   "dependencies": {
+    "@md2word/core": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

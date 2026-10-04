@@ -1,4 +1,4 @@
-import { basename, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 interface JobRecord {
@@ -22,9 +22,9 @@ export class JobRegistry {
     return jobId;
   }
 
-  /** 登记一个产物（sourceName 为渲染层持有的结果名，通常为源 .md 文件名） */
-  addOutput(jobId: string, sourceName: string, outputPath: string): void {
-    this.jobs.get(jobId)?.outputs.set(sourceName, outputPath);
+  /** 登记一个产物；key 为唯一化的产物 basename（M6：文件夹批量下重名产物加 N- 前缀），open/download 共用 */
+  addOutput(jobId: string, key: string, outputPath: string): void {
+    this.jobs.get(jobId)?.outputs.set(key, outputPath);
   }
 
   /** 解析 open 请求；未登记返回 null */
@@ -41,14 +41,9 @@ export class JobRegistry {
     return this.jobs.get(jobId)?.dir ?? null;
   }
 
-  /** 产物 basename → 路径（download URL 校验用） */
-  resolveByBasename(jobId: string, name: string): string | null {
-    const record = this.jobs.get(jobId);
-    if (!record) return null;
-    for (const outputPath of record.outputs.values()) {
-      if (basename(outputPath) === name) return outputPath;
-    }
-    return null;
+  /** 按登记键直查产物（登记键 = 唯一化的产物 basename，M6 起与 downloadUrl/open 共用） */
+  resolveKey(jobId: string, key: string): string | null {
+    return this.jobs.get(jobId)?.outputs.get(key) ?? null;
   }
 
   get size(): number {
