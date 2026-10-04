@@ -84,7 +84,11 @@ export class ConvertService {
     return this.queue.cancelAll(CANCEL_REASON);
   }
 
-  async run(entries: ConvertEntry[], options: ConvertOptionsPayload): Promise<JobResult> {
+  async run(
+    entries: ConvertEntry[],
+    options: ConvertOptionsPayload,
+    onItem?: (index: number, item: ConvertItemResult, jobId: string) => void,
+  ): Promise<JobResult> {
     const all = Array.isArray(entries) ? entries : [];
     // 仅 bytes 模式（staged md/资源）需要作业目录；纯 path 模式产物落源目录，不建空目录（D34）
     const needsStaging = all.some((e) => e?.bytes instanceof Uint8Array);
@@ -134,16 +138,31 @@ export class ConvertService {
     );
 
     const userOverwrite = this.settingsAll().overwrite === true;
+    // 产物登记键逐项分配（键 = 唯一化的产物 basename）：文件夹批量下不同子目录的同名文件
+    // 产物 basename 相同，按完成序加 `N-` 前缀消解（串行队列 → 完成序 = 提交序，确定性不变），
+    // downloadUrl/open 都走该键；键随单项结果即时可用（流式进度 M6+）
+    const usedOutputKeys = new Set<string>();
+    const uniqueOutputKey = (outputPath: string): string => {
+      const base = basename(outputPath);
+      let key = base;
+      let n = 1;
+      while (usedOutputKeys.has(key)) key = `${++n}-${base}`;
+      usedOutputKeys.add(key);
+      return key;
+    };
+
     const items = await Promise.all(
-      mdEntries.map(async (entry): Promise<ConvertItemResult> => {
+      mdEntries.map(async (entry, index): Promise<ConvertItemResult> => {
         if (!entry.srcPath) {
-          return {
+          const item: ConvertItemResult = {
             ok: false,
             durationMs: 0,
             warnings: [],
             name: entry.name,
             error: { code: 'E_SOURCE_NOT_FOUND', message: '文件内容不可读（路径模式需要真实文件）' },
           };
+          onItem?.(index, item, jobId);
+          return item;
         }
         try {
           const r = await this.queue.enqueue({
@@ -165,20 +184,26 @@ export class ConvertService {
               return res;
             },
           });
-          return {
+          const item: ConvertItemResult = {
             ok: r.ok,
             durationMs: r.durationMs,
             stats: r.stats,
             warnings: r.warnings,
-            ...(r.ok && r.outputPath
-              ? { outputPath: r.outputPath }
-              : { error: r.error }),
+            ...(r.ok && r.outputPath ? { outputPath: r.outputPath } : { error: r.error }),
             name: entry.name,
           };
+          if (r.ok && r.outputPath) {
+            const key = uniqueOutputKey(r.outputPath);
+            this.registry.addOutput(jobId, key, r.outputPath);
+            item.outputKey = key;
+            item.downloadUrl = buildDownloadUrl(jobId, key);
+          }
+          onItem?.(index, item, jobId);
+          return item;
         } catch (err) {
           this.logger.error(`convert threw: ${entry.name} ${err instanceof Error ? err.message : String(err)}`);
           const message = err instanceof Error ? err.message : String(err);
-          return {
+          const item: ConvertItemResult = {
             ok: false,
             durationMs: 0,
             warnings: [],
@@ -189,24 +214,11 @@ export class ConvertService {
                 ? { code: 'E_CANCELLED', message: '转换已被取消。' }
                 : { code: 'E_PANDOC_FAILED', message },
           };
+          onItem?.(index, item, jobId);
+          return item;
         }
       }),
     );
-
-    // 登记产物（键 = 唯一化的产物 basename）：文件夹批量下不同子目录的同名文件
-    // 产物 basename 相同，按完成序加 `N-` 前缀消解，downloadUrl/open 都走该键
-    const usedOutputKeys = new Set<string>();
-    for (const item of items) {
-      if (!(item.ok && item.outputPath)) continue;
-      const base = basename(item.outputPath);
-      let key = base;
-      let n = 1;
-      while (usedOutputKeys.has(key)) key = `${++n}-${base}`;
-      usedOutputKeys.add(key);
-      this.registry.addOutput(jobId, key, item.outputPath);
-      item.outputKey = key;
-      item.downloadUrl = buildDownloadUrl(jobId, key);
-    }
 
     this.recordRecentPaths(mdEntries);
     return { jobId, items };

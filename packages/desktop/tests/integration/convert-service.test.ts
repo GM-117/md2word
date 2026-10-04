@@ -88,6 +88,33 @@ describe('ConvertService path 模式（桌面语义：产物落源目录）', ()
     expect(job.items[0]!.ok).toBe(false);
     expect(['E_SOURCE_NOT_FOUND', 'E_PANDOC_FAILED']).toContain(job.items[0]!.error?.code);
   });
+
+  it('M6+ 流式进度：onItem 逐文件回调，序号/顺序/内容与最终结果一致且含 outputKey/downloadUrl', async () => {
+    const srcDir = join(workspace, 'src-stream');
+    mkdirSync(srcDir);
+    const entries = ['s1.md', 's2.md'].map((name) => {
+      const p = join(srcDir, name);
+      copyFileSync(SAMPLE, p);
+      return { name, path: p };
+    });
+    entries.push({ name: 'ghost.md', path: join(workspace, 'no-such.md') });
+
+    const seen: Array<{ index: number; jobId: string; item: { ok: boolean; name: string; outputKey?: string; downloadUrl?: string } }> = [];
+    const job = await services.convert.run(entries, {}, (index, item, jobId) => {
+      seen.push({ index, jobId, item });
+    });
+
+    // 逐文件回调：3 次、序号递增（串行队列完成序 = 提交序）、jobId 一致
+    expect(seen.map((s) => s.index)).toEqual([0, 1, 2]);
+    expect(new Set(seen.map((s) => s.jobId))).toEqual(new Set([job.jobId]));
+    // 单项结果完整（含登记键与下载地址，无需等整批返回）且与最终 items 一致
+    expect(seen[0]!.item).toMatchObject({ ok: true, name: 's1.md' });
+    expect(seen[0]!.item.outputKey).toBe('s1.docx');
+    expect(seen[0]!.item.downloadUrl).toMatch(/^md2word:\/\/download\//);
+    expect(seen[2]!.item).toMatchObject({ ok: false, name: 'ghost.md' });
+    expect(job.items.map((i) => ({ ok: i.ok, name: i.name, outputKey: i.outputKey, downloadUrl: i.downloadUrl })))
+      .toEqual(seen.map((s) => ({ ok: s.item.ok, name: s.item.name, outputKey: s.item.outputKey, downloadUrl: s.item.downloadUrl })));
+  });
 });
 
 describe('ConvertService bytes 模式（staged，与 web-host 等价）', () => {

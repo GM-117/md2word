@@ -219,8 +219,51 @@ describe('M6 文件夹批量（relPath 镜像落盘 + outputKey）', () => {
     expect((openable.json() as { ok: boolean }).ok).toBe(true);
   });
 
-  it('穿越文件名被安全化：../evil.md 回退平铺 staged，不越出作业目录', async () => {
+  it('M6+ NDJSON 流式（Accept 协商）：逐行 item 事件 + 末行 done，与 JSON 模式结果一致；clientBatchId 回传但不入转换选项', async () => {
+    const md = '# 标题\n\n正文。\n';
     const { payload, headers } = multipart([
+      { name: 'files', value: md, filename: '流式 甲.md' },
+      { name: 'files', value: md, filename: '流式 乙.md' },
+      { name: 'options', value: JSON.stringify({ clientBatchId: 'batch-x1', toc: false }) },
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/convert',
+      payload,
+      headers: { ...headers, accept: 'application/x-ndjson' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('application/x-ndjson');
+
+    const lines = res.payload.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    const itemLines = lines.filter((l) => l.type === 'item') as Array<{ type: 'item'; batchId: string; jobId: string; index: number; item: { ok: boolean; name: string } }>;
+    const doneLine = lines.find((l) => l.type === 'done') as { type: 'done'; jobId: string; items: Array<{ ok: boolean; name: string; outputKey?: string }> };
+    // 逐文件事件：2 行、序号递增、batchId 原样回传、jobId 就位
+    expect(itemLines.map((l) => l.index)).toEqual([0, 1]);
+    expect(itemLines.every((l) => l.batchId === 'batch-x1')).toBe(true);
+    expect(new Set(itemLines.map((l) => l.jobId))).toEqual(new Set([doneLine.jobId]));
+    expect(itemLines.map((l) => l.item.name)).toEqual(['流式 甲.md', '流式 乙.md']);
+    expect(itemLines.every((l) => l.item.ok)).toBe(true);
+    // done 行 = 完整 JobResult（与 item 事件一致）
+    expect(doneLine.items).toHaveLength(2);
+    expect(doneLine.items.map((i) => i.name)).toEqual(['流式 甲.md', '流式 乙.md']);
+  });
+
+  it('M6+ 默认（无 Accept 协商）仍返回完整 JobResult JSON——行为向后兼容', async () => {
+    const md = '# 标题\n\n正文。\n';
+    const { payload, headers } = multipart([
+      { name: 'files', value: md, filename: 'plain.md' },
+      { name: 'options', value: JSON.stringify({ clientBatchId: 'batch-x2' }) },
+    ]);
+    const res = await app.inject({ method: 'POST', url: '/api/convert', payload, headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+    const body = res.json() as { jobId: string; items: Array<{ ok: boolean; name: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]!.ok).toBe(true);
+  });
+
+  it('穿越文件名被安全化：../evil.md 回退平铺 staged，不越出作业目录', async () => {    const { payload, headers } = multipart([
       { name: 'files', value: MD, filename: enc('../evil.md') },
       { name: 'options', value: '{}' },
     ]);

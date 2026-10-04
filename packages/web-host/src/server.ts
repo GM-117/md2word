@@ -1,4 +1,5 @@
 import { createReadStream, mkdirSync, existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
 import { join, resolve, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { default as fastify } from 'fastify';
@@ -247,23 +248,51 @@ export async function createServer(opts: CreateServerOptions = {}) {
     }
 
     const s = settings.all;
+    // clientBatchId 是渲染层的流式进度关联标记（可选）：不进入 core 转换选项，仅在流式事件中原样回传
+    const { clientBatchId, ...convertOpts } = options as ConvertOptions & { clientBatchId?: string };
     const merged: ConvertOptions = {
       toc: s.toc === true,
       tocDepth: (s.tocDepth as 1 | 2 | 3 | 4 | 5 | 6) ?? 3,
       numberSections: s.numberSections === true,
       highlightStyle: (s.highlightStyle as HighlightStyle) ?? 'pygments',
       offline: s.offline === true,
-      referenceDocx: await resolveTemplate(options.referenceDocx),
+      referenceDocx: await resolveTemplate(convertOpts.referenceDocx),
       metadata: {
         title: typeof s.metaTitle === 'string' && s.metaTitle ? s.metaTitle : undefined,
         author: typeof s.metaAuthor === 'string' && s.metaAuthor ? s.metaAuthor : undefined,
       },
-      ...options,
+      ...convertOpts,
     };
     if (merged.metadata && !merged.metadata.title && !merged.metadata.author) delete merged.metadata;
 
     const state = jobs.createJob(jobDir, names);
     logger.info(`job accepted: ${names.length} file(s), options=${JSON.stringify({ ...merged, referenceDocx: merged.referenceDocx ? basename(merged.referenceDocx) : undefined })}`);
+
+    // 流式协商：带 Accept: application/x-ndjson 时逐文件推送进度（每行一个 JSON 事件，末行 done）；
+    // 默认仍返回完整 JobResult JSON（行为与既有客户端完全兼容）
+    if ((req.headers.accept ?? '').includes('application/x-ndjson')) {
+      const stream = new PassThrough();
+      reply.header('Content-Type', 'application/x-ndjson; charset=utf-8');
+      reply.header('Cache-Control', 'no-store');
+      reply.send(stream);
+      const writeLine = (obj: unknown): void => {
+        if (!stream.destroyed) stream.write(`${JSON.stringify(obj)}\n`);
+      };
+      jobs
+        .enqueueJob(state, merged, (index, item) => {
+          writeLine({ type: 'item', batchId: clientBatchId, jobId: state.jobId, index, item });
+        })
+        .then((result) => {
+          writeLine({ type: 'done', jobId: result.jobId, items: result.items });
+          stream.end();
+        })
+        .catch((err: unknown) => {
+          writeLine({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          stream.end();
+        });
+      return reply;
+    }
+
     const result = await jobs.enqueueJob(state, merged);
     return result satisfies JobResult;
   });

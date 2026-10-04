@@ -133,12 +133,11 @@ test.describe('M6 批量转换', () => {
     await expect(win.getByText(/重试失败项/)).toHaveCount(0);
   });
 
-  test('取消批量（D35）：剩余项统一 E_CANCELLED，重试计数随重试消解、可一键重试成功', async () => {
-    // 5 个 ~4MB 文件（单个 ≈2s，串行 ≈10s）；结果整批返回（行内无中间态），
-    // 因此"取消转换"按钮一出现立即点击——必然落在首个 2s 转换窗口内
+  test('取消批量（D35/M6+流式）：逐行实时翻转，剩余项统一 E_CANCELLED，一键重试成功', async () => {
+    // 5 个 ~6MB 文件（单个 ≈3s，串行 ≈15s）；结果整批返回前，已完成行应先行翻转（流式进度）
     const srcDir = join(workspace, 'cancel-batch');
     mkdirSync(srcDir, { recursive: true });
-    const big = '# 大文件\n\n' + '这是一个足够长的段落用于拖慢转换速度。\n\n'.repeat(60_000);
+    const big = '# 大文件\n\n' + '这是一个足够长的段落用于拖慢转换速度。\n\n'.repeat(90_000);
     const paths: string[] = [];
     for (let i = 1; i <= 5; i += 1) {
       const p = join(srcDir, `big-${i}.md`);
@@ -149,16 +148,20 @@ test.describe('M6 批量转换', () => {
     await win.locator('.dropzone input[type=file]').setInputFiles(paths);
     const cancelBtn = win.getByRole('button', { name: '取消转换' });
     await expect(cancelBtn).toBeVisible({ timeout: 60_000 });
-    await cancelBtn.click();
 
-    // 全部失败且统一为 E_CANCELLED「转换已被取消。」（不再出现裸「用户取消」）
+    // 流式断言：big-1 落定（≈3s）时其余 4 行仍是"转换中"——逐行翻转而非整批一起变
+    await expect(win.locator('.queue .row.done', { hasText: 'big-1.md' })).toBeVisible({ timeout: 60_000 });
+    await expect(win.locator('.queue .row.converting', { hasText: 'big-' })).toHaveCount(4);
+
+    // 首个完成后立即取消：剩余 4 项全部失败且统一为 E_CANCELLED「转换已被取消。」
+    await cancelBtn.click();
     const failedRows = win.locator('.queue .row.failed', { hasText: 'E_CANCELLED' });
-    await expect(failedRows).toHaveCount(5, { timeout: 60_000 });
-    await expect(win.getByText('重试失败项（5）')).toBeVisible();
+    await expect(failedRows).toHaveCount(4, { timeout: 60_000 });
+    await expect(win.getByText('重试失败项（4）')).toBeVisible();
 
     // 一键重试 → 全部成功；旧失败行标记"已重试"，重试入口消失（不可重复点击建任务）
     await win.getByRole('button', { name: /重试失败项/ }).click();
-    for (let i = 1; i <= 5; i += 1) {
+    for (let i = 2; i <= 5; i += 1) {
       await expect(win.locator('.queue .row', { hasText: `big-${i}.md` }).first()).toHaveClass(/done/, {
         timeout: 60_000,
       });

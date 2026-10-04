@@ -20,9 +20,22 @@ export function registerBridge(services: AppServices): void {
     };
   });
 
-  ipcMain.handle('convert:batch', (_event, entries: unknown, options: unknown) =>
-    services.convert.run(entries as Parameters<typeof services.convert.run>[0], options as Parameters<typeof services.convert.run>[1]),
-  );
+  // 渲染层传入 clientBatchId（流式进度关联标记，M6+ 逐文件进度）时，逐项结果经
+  // convert:progress 事件推送；事件即时反映单项落定，最终完整结果仍由 invoke 返回
+  ipcMain.handle('convert:batch', (event, entries: unknown, options: unknown) => {
+    const opts = (options && typeof options === 'object' ? options : {}) as { clientBatchId?: unknown };
+    const batchId = typeof opts.clientBatchId === 'string' && opts.clientBatchId ? opts.clientBatchId : null;
+    const sender = event.sender;
+    return services.convert.run(
+      entries as Parameters<typeof services.convert.run>[0],
+      options as Parameters<typeof services.convert.run>[1],
+      batchId
+        ? (index, item, jobId) => {
+            if (!sender.isDestroyed()) sender.send('convert:progress', { batchId, jobId, index, item });
+          }
+        : undefined,
+    );
+  });
 
   ipcMain.handle('convert:file', (_event, entry: unknown, options: unknown) =>
     services.convert.run([entry] as Parameters<typeof services.convert.run>[0], options as Parameters<typeof services.convert.run>[1]),

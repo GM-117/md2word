@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { isBatchMarkdownPath } from '@md2word/core/mdfilter';
-import { transport, isDesktop, type ConvertEntryPayload, type ConvertItemResult, type ConvertOptionsPayload, type Health, type TemplateInfo, type TemplateStyleSummary } from './lib/transport';
+import { transport, isDesktop, type ConvertEntryPayload, type ConvertItemResult, type ConvertOptionsPayload, type ConvertProgressEvent, type Health, type TemplateInfo, type TemplateStyleSummary } from './lib/transport';
 
 interface RowState {
   key: string;
@@ -164,6 +164,8 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  /** 当前进行中批次的流式进度关联（batchId → 本批次行键）；批间过滤与事件→行映射用 */
+  const activeBatchRef = useRef<{ batchId: string; keys: string[] } | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -287,11 +289,26 @@ export function App() {
       ...prev,
     ]);
 
+    // M6+ 流式进度：批次标记由服务端在逐文件事件中原样回传，用于把事件映射到本批次的行
+    const batchId = `b-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const batchKeys = newKeys.map((k) => k.key);
+    activeBatchRef.current = { batchId, keys: batchKeys };
+    const onProgress = (evt: ConvertProgressEvent): void => {
+      if (evt.batchId !== batchId) return;
+      const key = batchKeys[evt.index];
+      if (!key) return;
+      setRows((prev) => prev.map((r) => (
+        r.key === key && r.status === 'converting'
+          ? { ...r, status: evt.item.ok ? 'done' : 'failed', result: evt.item, jobId: evt.jobId }
+          : r
+      )));
+    };
+
     try {
       // options 只传转换语义键：template 已换名为 defaultTemplate 设置，由服务端解析模板路径
       const { template: _tpl, ...convertOptions } = optionsRef.current;
       void _tpl;
-      const job = await transport.convertEntries([...rowEntries, ...extraEntries], convertOptions);
+      const job = await transport.convertEntries([...rowEntries, ...extraEntries], { ...convertOptions, clientBatchId: batchId }, onProgress);
       setRows((prev) => prev.map((r) => {
         const idx = newKeys.findIndex((k) => k.key === r.key);
         if (idx === -1) return r;
@@ -311,6 +328,8 @@ export function App() {
             }
           : r
       )));
+    } finally {
+      if (activeBatchRef.current?.batchId === batchId) activeBatchRef.current = null;
     }
     setBusy(false);
   }, [persistOptions]);

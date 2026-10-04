@@ -9,6 +9,14 @@ contextBridge.exposeInMainWorld('md2word', {
   health: () => ipcRenderer.invoke('app:health'),
   convert: (entries: unknown, options: unknown) => ipcRenderer.invoke('convert:batch', entries, options),
   cancel: () => ipcRenderer.invoke('convert:cancel'),
+  // M6+ 流式进度：主进程 convert:progress 事件 → 渲染层回调；返回退订函数
+  onConvertProgress: (callback: (evt: unknown) => void) => {
+    const listener = (_event: unknown, evt: unknown): void => callback(evt);
+    ipcRenderer.on('convert:progress', listener);
+    return (): void => {
+      ipcRenderer.removeListener('convert:progress', listener);
+    };
+  },
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   scanFolder: (folderPath: string) => ipcRenderer.invoke('convert:scanFolder', folderPath),
   getSettings: () => ipcRenderer.invoke('settings:get'),

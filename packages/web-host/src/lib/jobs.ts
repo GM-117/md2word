@@ -103,10 +103,17 @@ export class JobManager {
     return key;
   }
 
-  /** 把作业逐项入队（队列内串行执行）；resolve 在全部处理完后触发 */
-  enqueueJob(state: JobState, baseOptions: ConvertOptions): Promise<JobResult> {
+  /**
+   * 把作业逐项入队（队列内串行执行）；resolve 在全部处理完后触发。
+   * onItem（可选）：每个文件落定（成功/失败）即回调，供 /api/convert 以 NDJSON 流式推送逐文件进度。
+   */
+  enqueueJob(
+    state: JobState,
+    baseOptions: ConvertOptions,
+    onItem?: (index: number, item: JobItemResult) => void,
+  ): Promise<JobResult> {
     const { jobId, dir } = state;
-    const tasks = state.items.map((item): Promise<void> =>
+    const tasks = state.items.map((item, index): Promise<void> =>
       this.queue.enqueue({
         label: item.name,
         run: async (signal) => {
@@ -132,22 +139,28 @@ export class JobManager {
             this.logger.warn(`convert failed: ${item.name} code=${result.error?.code} ${result.error?.message ?? ''}`);
           }
         },
-      }).catch((err: unknown) => {
-        item.phase = 'failed';
-        // 整队取消的待执行任务以 rejection 落到这里：与在跑任务的 E_CANCELLED 统一口径
-        const message = err instanceof Error ? err.message : String(err);
-        item.result = {
-          ok: false,
-          durationMs: 0,
-          warnings: [],
-          name: item.name,
-          error:
-            message === CANCEL_REASON
-              ? { code: 'E_CANCELLED', message: '转换已被取消。' }
-              : { code: 'E_PANDOC_FAILED', message },
-        };
-        this.logger.error(`convert threw: ${item.name} ${message}`);
-      }),
+      }).then(
+        () => {
+          onItem?.(index, item.result!);
+        },
+        (err: unknown) => {
+          item.phase = 'failed';
+          // 整队取消的待执行任务以 rejection 落到这里：与在跑任务的 E_CANCELLED 统一口径
+          const message = err instanceof Error ? err.message : String(err);
+          item.result = {
+            ok: false,
+            durationMs: 0,
+            warnings: [],
+            name: item.name,
+            error:
+              message === CANCEL_REASON
+                ? { code: 'E_CANCELLED', message: '转换已被取消。' }
+                : { code: 'E_PANDOC_FAILED', message },
+          };
+          this.logger.error(`convert threw: ${item.name} ${message}`);
+          onItem?.(index, item.result);
+        },
+      ),
     );
 
     return (async () => {

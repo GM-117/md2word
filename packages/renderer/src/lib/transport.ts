@@ -47,6 +47,18 @@ export interface ConvertOptionsPayload {
   metadata?: { title?: string; author?: string };
   /** 模板名：'builtin-zh' | 'pandoc-default' | 用户模板名（服务端解析为路径） */
   template?: string;
+  /** M6+ 流式进度：渲染层生成的批次关联标记，服务端仅在进度事件中原样回传（不进入转换选项） */
+  clientBatchId?: string;
+}
+
+/** M6+ 逐文件流式进度事件：单个文件落定（成功/失败）即推送一次 */
+export interface ConvertProgressEvent {
+  /** 批次关联标记（渲染层生成；web 端由服务端原样回传，桌面端经 IPC 事件回传） */
+  batchId?: string;
+  jobId: string;
+  /** 在本批次 md 条目中的序号（与提交顺序一致） */
+  index: number;
+  item: ConvertItemResult;
 }
 
 export interface TemplateInfo {
@@ -74,8 +86,14 @@ export interface ApiTransport {
   /**
    * M6 批量转换：已备好的文件条目（name 可为含子目录的相对路径，file 为网页端 File 源）。
    * 与 convert 的差别：桌面端文件夹批量已持有真实路径（path 模式），跳过 getPathForFile 探测。
+   * onProgress（可选）：传入时（options.clientBatchId 为关联标记）逐文件推送落定结果——
+   * 桌面端走 convert:progress IPC 事件，网页端走 NDJSON 流式响应（Accept 协商，旧服务端自动回退整批 JSON）。
    */
-  convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult>;
+  convertEntries(
+    entries: ConvertEntryPayload[],
+    options: ConvertOptionsPayload,
+    onProgress?: (evt: ConvertProgressEvent) => void,
+  ): Promise<JobResult>;
   /** M6（仅桌面）：原生文件夹选择对话框；用户取消返回 ok:false */
   pickFolder?(): Promise<{ ok: boolean; path?: string }>;
   /** M6（仅桌面）：递归扫描文件夹（排除隐藏/非 .md/node_modules）；无 .md 或路径非法时抛错 */
@@ -124,7 +142,11 @@ export class HttpTransport implements ApiTransport {
     return this.convertEntries(files.map((f) => ({ name: f.name, file: f })), options);
   }
 
-  async convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult> {
+  async convertEntries(
+    entries: ConvertEntryPayload[],
+    options: ConvertOptionsPayload,
+    onProgress?: (evt: ConvertProgressEvent) => void,
+  ): Promise<JobResult> {
     const form = new FormData();
     for (const e of entries) {
       if (!e.file) throw new Error(`网页端仅支持文件上传（${e.name} 缺少文件内容）`);
@@ -132,7 +154,23 @@ export class HttpTransport implements ApiTransport {
       form.append('files', e.file, encodeURIComponent(e.name));
     }
     form.append('options', JSON.stringify(options));
-    const r = await fetch('/api/convert', { method: 'POST', body: form });
+    if (!onProgress) {
+      const r = await fetch('/api/convert', { method: 'POST', body: form });
+      return this.parseConvertResponse(r);
+    }
+    // 流式：NDJSON 逐行解析（服务端按 Accept 协商；不支持的旧服务端回退整批 JSON）
+    const r = await fetch('/api/convert', {
+      method: 'POST',
+      body: form,
+      headers: { Accept: 'application/x-ndjson' },
+    });
+    if (!r.ok) return this.parseConvertResponse(r);
+    const isNdjson = (r.headers.get('content-type') ?? '').includes('application/x-ndjson');
+    if (!isNdjson || !r.body) return this.parseConvertResponse(r);
+    return readNdjsonStream(r.body, onProgress);
+  }
+
+  private async parseConvertResponse(r: Response): Promise<JobResult> {
     const body = (await r.json()) as JobResult & { ok?: boolean; error?: string };
     if (!r.ok) throw new Error(body.error ?? `convert HTTP ${r.status}`);
     return body;
@@ -211,6 +249,8 @@ export interface Md2WordBridge {
     options: ConvertOptionsPayload,
   ): Promise<JobResult>;
   cancel(): Promise<{ ok: boolean; cancelled?: number }>;
+  /** M6+ 流式进度：订阅逐文件落定事件（按事件内 batchId 区分批次）；返回退订函数 */
+  onConvertProgress(callback: (evt: ConvertProgressEvent) => void): () => void;
   /** M6：原生文件夹选择对话框（用户取消 → ok:false） */
   pickFolder(): Promise<{ ok: boolean; path?: string }>;
   /** M6：递归扫描文件夹（排除隐藏/非 .md/node_modules）；无 .md 或路径非法时抛错 */
@@ -252,20 +292,36 @@ export class IpcTransport implements ApiTransport {
     return this.convertEntries(files.map((f) => ({ name: f.name, file: f })), options);
   }
 
-  async convertEntries(entries: ConvertEntryPayload[], options: ConvertOptionsPayload): Promise<JobResult> {
-    // path 模式优先（真实文件：直接从源位置转换，产物写源目录）；取不到路径时回退字节通道
-    const payloads = await Promise.all(
-      entries.map(async (e) => {
-        if (e.path) return { name: e.name, path: e.path };
-        if (e.file) {
-          const path = bridge().getPathForFile(e.file);
-          if (path) return { name: e.name, path };
-          return { name: e.name, bytes: new Uint8Array(await e.file.arrayBuffer()) };
-        }
-        return { name: e.name }; // 无内容 → 服务端报 E_SOURCE_NOT_FOUND
-      }),
-    );
-    return bridge().convert(payloads, options);
+  async convertEntries(
+    entries: ConvertEntryPayload[],
+    options: ConvertOptionsPayload,
+    onProgress?: (evt: ConvertProgressEvent) => void,
+  ): Promise<JobResult> {
+    // 流式进度：按 options.clientBatchId 过滤事件（同队列可能交错多个批次），结束后退订
+    let unsub: (() => void) | null = null;
+    if (onProgress && options.clientBatchId) {
+      const batchId = options.clientBatchId;
+      unsub = bridge().onConvertProgress((evt) => {
+        if (evt.batchId === batchId) onProgress(evt);
+      });
+    }
+    try {
+      // path 模式优先（真实文件：直接从源位置转换，产物写源目录）；取不到路径时回退字节通道
+      const payloads = await Promise.all(
+        entries.map(async (e) => {
+          if (e.path) return { name: e.name, path: e.path };
+          if (e.file) {
+            const path = bridge().getPathForFile(e.file);
+            if (path) return { name: e.name, path };
+            return { name: e.name, bytes: new Uint8Array(await e.file.arrayBuffer()) };
+          }
+          return { name: e.name }; // 无内容 → 服务端报 E_SOURCE_NOT_FOUND
+        }),
+      );
+      return await bridge().convert(payloads, options);
+    } finally {
+      unsub?.();
+    }
   }
 
   async pickFolder(): Promise<{ ok: boolean; path?: string }> {
@@ -333,3 +389,44 @@ export const isDesktop = typeof window !== 'undefined' && !!window.md2word;
 /** 环境自动选择：Electron 下走 IPC，浏览器/web-host 下走 HTTP（UI 组件对此无感知） */
 export const transport: ApiTransport =
   typeof window !== 'undefined' && window.md2word ? new IpcTransport() : new HttpTransport();
+
+/** NDJSON 流解析：每行一个事件（item/done/error），逐文件回调进度，最终以 done 行的完整结果收束 */
+async function readNdjsonStream(
+  body: ReadableStream<Uint8Array>,
+  onProgress: (evt: ConvertProgressEvent) => void,
+): Promise<JobResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let final: JobResult | null = null;
+  const handleLine = (line: string): void => {
+    if (!line) return;
+    const evt = JSON.parse(line) as
+      | { type: 'item'; batchId?: string; jobId?: string; index: number; item: ConvertItemResult }
+      | { type: 'done'; jobId: string; items: ConvertItemResult[] }
+      | { type: 'error'; message: string };
+    if (evt.type === 'item') {
+      onProgress({ batchId: evt.batchId, jobId: evt.jobId ?? '', index: evt.index, item: evt.item });
+    } else if (evt.type === 'done') {
+      final = { jobId: evt.jobId, items: evt.items };
+    } else {
+      throw new Error(evt.message);
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) {
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        handleLine(line);
+      }
+    }
+    if (done) break;
+  }
+  handleLine(buf.trim()); // 兜底：末行无换行符
+  if (!final) throw new Error('转换流意外结束（未收到完整结果）');
+  return final;
+}
