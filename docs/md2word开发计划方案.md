@@ -25,7 +25,7 @@
 
 ### 1.3 功能需求分级
 
-- **P0（v1.0 必须）**：单文件转换（拖拽 + 文件选择）；pandoc sidecar 内置免安装；进度与结果反馈；打开文件/打开所在文件夹；基础选项（TOC 开关、目录层级、章节编号、高亮风格、输出目录、覆盖策略）；中文路径全链路支持；结构化错误展示与日志导出；设置持久化。
+- **P0（首版必须）**：单文件转换（拖拽 + 文件选择）；pandoc sidecar 内置免安装；进度与结果反馈；打开文件/打开所在文件夹；基础选项（TOC 开关、目录层级、章节编号、高亮风格、输出目录、覆盖策略）；中文路径全链路支持；结构化错误展示与日志导出；设置持久化。
 - **P1（v1.1，已确认延后但需求保留）**：~~文件夹递归批量转换~~（**已于 2026-10-04 经用户指令上移，作为 M6 实施，见 §8 决策 #5**）；模板管理（导入/选择/另存默认）；YAML 元数据（标题/作者）面板透传；最近文件列表；日志查看器。
 - **P2（按需）**：监视文件夹自动转换；electron-updater 自动更新；多语言。（轻量版安装包方案已评审否决，不再排期）
 
@@ -152,7 +152,7 @@ IPC 通道（白名单）：`convert:file`、`convert:batch`、`convert:cancel`�
 
 ---
 
-## 3. 开发里程碑（v1.0 约 9 人日，含 30% buffer ≈ 12 人日；业余时间日历周期约 3 周；v1.1 批量转换另计 +1 人日）
+## 3. 开发里程碑（首版约 9 人日，含 30% buffer ≈ 12 人日；业余时间日历周期约 3 周；v1.1 批量转换另计 +1 人日）
 
 | 里程碑 | 内容 | 人日 | 完成定义（DoD，全部可验证） |
 |---|---|---|---|
@@ -161,14 +161,14 @@ IPC 通道（白名单）：`convert:file`、`convert:batch`、`convert:cancel`�
 | **M2 Web UI MVP** | web-host（Fastify 桥接 core + 静态托管）+ 渲染层：拖拽/选择 → 队列 → 进度/结果 → 打开；P0 选项面板；设置持久化（web-host 落盘 JSON，Electron 阶段换 electron-store，格式一致）；错误人话化与日志导出 | 2.5 | 浏览器中 US1/US4/US5/US6 验收通过；Playwright Web 冒烟（选文件→转换→结果出现）通过 |
 | **M3 模板与元数据** | 模板导入/选择/校验（zip 合法性 + 必需样式存在性）；内置 reference-zh.docx 制作；YAML 元数据面板透传；最近文件列表 | 1.5 | US3 验收通过；无效模板被拒并给出缺哪些样式的提示 |
 | **M4 Electron 包装与分发** | Electron 壳接入既有 renderer（HTTP 桥 → IPC，前端仅换传输层适配器）；electron-builder 双平台产物 + sidecar 打包校验（产物内 pandoc 可执行、GPL 声明文件在位）；全新虚拟机冒烟清单 | 2 | 三平台安装包在干净系统安装→转换→卸载全流程通过；Gatekeeper/SmartScreen 解除指引写入 README |
-| **M5 发布 v1.0** | 文档（README/使用手册/FAQ）、tag + GitHub Release（CI 自动附三平台产物）、pandoc 许可证与源码链接随包 | 1 | Release 资产齐全；按 §5 全量回归通过后打 tag |
+| **M5 发布 v0.1.0** | 文档（README/使用手册/FAQ）、tag + GitHub Release（CI 自动附三平台产物）、pandoc 许可证与源码链接随包 | 1 | Release 资产齐全；按 §5 全量回归通过后打 tag |
 | **M6 批量转换（已上移实施，2026-10-04）** | 文件夹递归扫描（排除隐藏/非 .md）；批量结果列表与重试 | 1 | US2 验收通过；单文件失败不中断队列 |
 
 > MCP 轨道（并行，见另文）：M1 冻结 core 接口后即可实施，+1 人日，不占关键路径。
 
-### 签名策略（分两阶段，避免阻塞 v1.0）
+### 签名策略（分两阶段，避免阻塞首发）
 
-- 阶段一（v1.0）：不购买证书。macOS 提供一行解除指引（`xattr -cr /Applications/md2word.app` 或右键打开）；Windows 说明 SmartScreen"仍要运行"路径。
+- 阶段一（v0.1.0 起）：不购买证书。macOS 提供一行解除指引（`xattr -cr /Applications/md2word.app` 或右键打开）；Windows 说明 SmartScreen"仍要运行"路径。
 - 阶段二（可选）：Apple Developer ID（$99/年）+ 公证，Windows 证书——走 electron-builder 现成配置，预算 0.5 人日 + 年费。
 
 ---
@@ -219,8 +219,8 @@ IPC 通道（白名单）：`convert:file`、`convert:batch`、`convert:cancel`�
 
 1. **分支模型**：`main`（保护，CI 全绿方可合并）+ 短命 feature 分支；发版 = 打 `v*` tag。
 2. **CI**（ci.yml）：三平台矩阵跑 lint + typecheck + 单元 + 集成（真实 pandoc，runner 上 `gh release download` 或缓存二进制）+ E2E（仅 macOS/Windows 各一档）。
-3. **Release**（release.yml）：tag 触发 → electron-builder 产出 `md2word-1.0.0-arm64.dmg`、`md2word-1.0.0-x64.dmg`、`md2word-Setup-1.0.0.exe` → 附到 GitHub Release（含 SHA-256 清单与变更日志）。
-4. **更新**：v1.0 手动下载安装；P2 接入 electron-updater + GitHub Releases 通道。
+3. **Release**（release.yml）：tag 触发 → electron-builder 产出 `md2word-<版本>-arm64.dmg`、`md2word-<版本>-x64.dmg`、`md2word Setup <版本>.exe` → 附到 GitHub Release（含 SHA-256 清单与变更日志）。
+4. **更新**：各版本均手动下载安装（首版 v0.1.0，见 §8 决策 #6）；P2 接入 electron-updater + GitHub Releases 通道。
 5. **回滚**：Release 历史全保留；pandoc 升级独立于应用版本，出问题按 §4.7 流程回退二进制。
 
 ## 7. 风险清单
@@ -245,5 +245,6 @@ IPC 通道（白名单）：`convert:file`、`convert:batch`、`convert:cancel`�
 | 3 | 批量转换 | 确认延后至 v1.1（M6，P1），**需求保留在路线图，不得删除** |
 | 4 | 仓库 | `/Users/gaomeng/vibe-coding/zcode/01_code/md2word`；本计划、《MCP设计方案》《调研报告》与种子样例已移交仓库（`docs/`、`samples/`） |
 | 5 | M6 上移（2026-10-04） | 经用户指令，M6 批量转换从 v1.1 上移至当前里程碑实施（M4 三平台安装包已产出、macOS 冒烟通过后启动）；范围仍按本表 M6 行：文件夹递归扫描（排除隐藏/非 .md 与 node_modules）+ 批量结果列表与重试，DoD 不变 |
+| 6 | 发布版本号（2026-10-05） | 经用户确认：GitHub 发布自 **v0.1.0** 起（与包内 package.json 全线 0.1.0 一致），便于后续小功能/页面优化走 0.x 迭代；**v1.0 留待功能完整后发布**（届时提醒用户） |
 
 后续开发任务自 md2word 工作区下发；建议首个任务 = M0 + M1。

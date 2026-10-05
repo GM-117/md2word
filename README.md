@@ -5,6 +5,8 @@
 
 ## 安装与使用
 
+从 [GitHub Releases](https://github.com/GM-117/md2word/releases) 下载对应平台安装包。
+
 ### macOS
 
 1. 下载 `md2word-<版本>-arm64.dmg`（Apple Silicon）或 `md2word-<版本>-x64.dmg`（Intel）；
@@ -57,8 +59,12 @@ pnpm --filter @md2word/desktop e2e         # 桌面 E2E（Playwright _electron�
 pnpm --filter @md2word/desktop dist        # 打安装包（产物在 packages/desktop/release/）
 ```
 
-目录与架构见 [docs/md2word开发计划方案.md](docs/md2word开发计划方案.md)（唯一开发依据）；
-进度总账见 [项目进展记录.md](项目进展记录.md)；逐项测试证据见 [docs/tests/](docs/tests/)。
+## 文档
+
+- [使用手册.md](使用手册.md) —— 功能详解、HTTP API 参考、错误码/警告码速查（附录 A）
+- [FAQ.md](FAQ.md) —— 安装版用户常见问题速查（Gatekeeper/SmartScreen、产物位置、模板、性能边界等）
+- [docs/md2word开发计划方案.md](docs/md2word开发计划方案.md) —— 架构与唯一开发依据
+- [项目进展记录.md](项目进展记录.md) —— 进度总账；逐项测试证据见 [docs/tests/](docs/tests/)
 
 ## 许可证
 

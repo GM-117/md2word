@@ -60,3 +60,25 @@ jobs:
             packages/desktop/release/*.dmg
             packages/desktop/release/*.exe
           generate_release_notes: true
+
+  # 矩阵各 runner 只持本平台产物：SHA-256 清单待三平台全部上传后统一下载汇总，
+  # 避免各 runner 各自生成的清单相互覆盖（开发计划 §6.3：Release 附 SHA-256 清单）
+  sha256-manifest:
+    name: attach SHA-256 manifest
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --dir release-assets --clobber
+
+      - name: Generate SHA256SUMS.txt
+        run: node packages/desktop/scripts/release-sha256.mjs release-assets
+
+      - name: Upload manifest to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" release-assets/SHA256SUMS.txt --repo "${{ github.repository }}" --clobber
