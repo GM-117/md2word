@@ -219,7 +219,7 @@ IPC 通道（白名单）：`convert:file`、`convert:batch`、`convert:cancel`�
 
 1. **分支模型**：`main`（保护，CI 全绿方可合并）+ 短命 feature 分支；发版 = 打 `v*` tag。
 2. **CI**（ci.yml）：三平台矩阵跑 lint + typecheck + 单元 + 集成（真实 pandoc，runner 上 `gh release download` 或缓存二进制）+ E2E（仅 macOS/Windows 各一档）。
-3. **Release**（release.yml）：tag 触发 → electron-builder 产出 `md2word-<版本>-arm64.dmg`、`md2word-<版本>-x64.dmg`、`md2word Setup <版本>.exe` → 附到 GitHub Release（含 SHA-256 清单与变更日志）。
+3. **Release**（release.yml）：tag 触发 → electron-builder 产出 `md2word-<版本>-arm64.dmg`、`md2word-<版本>-x64.dmg`、`md2word.Setup.<版本>.exe`（GitHub 资产名将空格转为点）→ 附到 GitHub Release（含 SHA-256 清单与变更日志）。
 4. **更新**：各版本均手动下载安装（首版 v0.1.0，见 §8 决策 #6）；P2 接入 electron-updater + GitHub Releases 通道。
 5. **回滚**：Release 历史全保留；pandoc 升级独立于应用版本，出问题按 §4.7 流程回退二进制。
 
