@@ -6,6 +6,10 @@ import { absolutizeImagePaths, countFencedCodeBlocks, mapOutsideCode, normalizeI
 // 路径分隔符才剥（'https://' 等 URL scheme 前的字母非独立词首，不误伤；D39）
 const norm = (s: string) => s.replace(/\\/g, '/').replace(/(?<![A-Za-z])[A-Za-z]:(?=[\\/])/g, '');
 
+// Windows 绝对化结果自带盘符冒号（D:/...），实现按"目标含冒号需消歧"加尖括号包裹——
+// 平台语义差异（非缺陷），这三例的"是否包裹"预期分平台构造
+const IS_WIN = process.platform === 'win32';
+
 describe('absolutizeImagePaths 图片路径绝对化', () => {
   const SRC = '/src 带空格/doc.md';
 
@@ -15,9 +19,9 @@ describe('absolutizeImagePaths 图片路径绝对化', () => {
     expect(r.rewrittenImages.map(norm)).toEqual(['/src 带空格/img.png']);
   });
 
-  it('无特殊字符的绝对安全路径裸写不包裹', () => {
+  it('无特殊字符的绝对安全路径裸写不包裹（Windows 盘符冒号触发包裹）', () => {
     const r = absolutizeImagePaths('![a](img.png)', '/src/doc.md');
-    expect(norm(r.text)).toBe(norm('![a](/src/img.png)'));
+    expect(norm(r.text)).toBe(norm(`![a](${IS_WIN ? '</src/img.png>' : '/src/img.png'})`));
   });
 
   it('中文名称的图片包裹尖括号（裸空格目标属非法 Markdown，尖括号输入）', () => {
@@ -44,13 +48,13 @@ describe('absolutizeImagePaths 图片路径绝对化', () => {
 
   it('引用定义 [id]: path 一并绝对化', () => {
     const r = absolutizeImagePaths('![a][ref]\n\n[ref]: images/pic.png "标题"', '/src/doc.md');
-    expect(norm(r.text)).toContain(norm('[ref]: /src/images/pic.png'));
+    expect(norm(r.text)).toContain(norm(`[ref]: ${IS_WIN ? '</src/images/pic.png>' : '/src/images/pic.png'}`));
     expect(r.rewrittenImages.map(norm)).toEqual(['/src/images/pic.png']);
   });
 
   it('带标题的行内图片保留 title', () => {
     const r = absolutizeImagePaths('![a](img.png "图片标题")', '/src/doc.md');
-    expect(norm(r.text)).toBe(norm('![a](/src/img.png "图片标题")'));
+    expect(norm(r.text)).toBe(norm(`![a](${IS_WIN ? '</src/img.png>' : '/src/img.png'} "图片标题")`));
   });
 
   it('fenced code block 内的示例语法不改写', () => {
