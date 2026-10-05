@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { buildPandocArgs, resolveOutputPath } from '../../src/convert.js';
 import type { ConvertOptions } from '../../src/types.js';
 
+// Windows 路径断言归一化（分隔符统一 + 去盘符）：resolveOutputPath 在 Windows 上
+// 返回 'D:\a\b\doc.docx'，与 POSIX 形式同义（D39 三平台 CI 首次真跑暴露）
+const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+
 // M1 DoD①：参数构建器快照测试——锁定 argv 全序列（禁 shell:true，§4.1）
 const BASE = {
   inputMd: '/tmp/in.md',
@@ -114,19 +118,19 @@ describe('buildPandocArgs 参数构建器快照', () => {
 
 describe('resolveOutputPath 输出路径推导', () => {
   it('缺省与源同目录、同名 .docx', () => {
-    expect(resolveOutputPath('/a/b/doc.md')).toBe('/a/b/doc.docx');
+    expect(norm(resolveOutputPath('/a/b/doc.md'))).toBe(norm('/a/b/doc.docx'));
   });
 
   it('支持 .markdown/.mdown/.mkd 与大小写', () => {
-    expect(resolveOutputPath('/a/b/doc.MARKDOWN')).toBe('/a/b/doc.docx');
-    expect(resolveOutputPath('/a/b/doc.mdown')).toBe('/a/b/doc.docx');
+    expect(norm(resolveOutputPath('/a/b/doc.MARKDOWN'))).toBe(norm('/a/b/doc.docx'));
+    expect(norm(resolveOutputPath('/a/b/doc.mdown'))).toBe(norm('/a/b/doc.docx'));
   });
 
   it('outputDir 覆盖输出目录（相对路径按 cwd 解析）', () => {
-    expect(resolveOutputPath('/a/b/doc.md', '/out')).toBe('/out/doc.docx');
+    expect(norm(resolveOutputPath('/a/b/doc.md', '/out'))).toBe(norm('/out/doc.docx'));
   });
 
   it('中文字符与空格路径原样保留', () => {
-    expect(resolveOutputPath('/a/中文 目录/测试 文件.md')).toBe('/a/中文 目录/测试 文件.docx');
+    expect(norm(resolveOutputPath('/a/中文 目录/测试 文件.md'))).toBe(norm('/a/中文 目录/测试 文件.docx'));
   });
 });
