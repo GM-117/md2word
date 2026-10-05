@@ -554,6 +554,15 @@ export function App() {
               if (e.dataTransfer.files.length > 0) void convertFiles(e.dataTransfer.files);
             }}
           >
+            {/* 文件 input 必须是 label 的第一个可标记后代（D36）：label 隐式转发目标 =
+                第一个 labelable 后代，若文件夹按钮（button 也是 labelable）排在前面，
+                点击"选择文件"会被转发成文件夹对话框 */}
+            <input
+              type="file"
+              multiple
+              accept=".md,.markdown,.mdown,.mkd,image/*"
+              onChange={(e) => { if (e.target.files) void convertFiles(e.target.files); e.target.value = ''; }}
+            />
             <span className="drop-ico" aria-hidden="true"><IconDocArrow /></span>
             <span className="dropzone-main">把 .md 拖到这里</span>
             <span className="dropzone-sub">可连同图片资源一起拖入；或点击选择文件</span>
@@ -583,12 +592,6 @@ export function App() {
                 </button>
               )}
             </span>
-            <input
-              type="file"
-              multiple
-              accept=".md,.markdown,.mdown,.mkd,image/*"
-              onChange={(e) => { if (e.target.files) void convertFiles(e.target.files); e.target.value = ''; }}
-            />
           </label>
           {!isDesktop && (
             // 网页端目录选择（Chromium）：全部文件带 webkitRelativePath，客户端过滤后上传，服务端镜像落盘

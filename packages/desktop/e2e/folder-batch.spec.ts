@@ -168,4 +168,30 @@ test.describe('M6 批量转换', () => {
     }
     await expect(win.getByText(/重试失败项/)).toHaveCount(0);
   });
+
+  test('D36：点击"选择文件（可多选）"触发文件选择对话框，而非被文件夹按钮劫持', async () => {
+    // 主进程对话框打桩计数：文件夹对话框被调用即记一次（返回 canceled 防原生对话框阻塞）
+    await app.evaluate(({ dialog }) => {
+      (dialog as unknown as { __folderCalls: number }).__folderCalls = 0;
+      dialog.showOpenDialog = async () => {
+        (dialog as unknown as { __folderCalls: number }).__folderCalls += 1;
+        return { canceled: true, filePaths: [] };
+      };
+    });
+    // 渲染层监听文件 input 的 click（label 隐式转发会在其上派发 click 事件）
+    await win.evaluate(() => {
+      const w = window as typeof window & { __d36FileClick?: boolean };
+      w.__d36FileClick = false;
+      document.querySelector('.dropzone input[type="file"]')!.addEventListener('click', () => {
+        w.__d36FileClick = true;
+      });
+    });
+
+    await win.locator('.dropzone .button.primary').click();
+
+    const fileClick = await win.evaluate(() => (window as typeof window & { __d36FileClick?: boolean }).__d36FileClick);
+    const folderCalls = await app.evaluate(({ dialog }) => (dialog as unknown as { __folderCalls: number }).__folderCalls);
+    expect(fileClick).toBe(true);   // label 转发命中文件 input
+    expect(folderCalls).toBe(0);    // 不开文件夹对话框
+  });
 });
