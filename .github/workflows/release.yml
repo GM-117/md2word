@@ -11,6 +11,12 @@ on:
 permissions:
   contents: write
 
+# 重推同名 tag（修复后重建）时取消旧构建，避免旧 run 往同一 Release 竞争上传；
+# 不同 tag 各自成组，v0.1.1 与 v0.1.0 可并行
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release:
     name: build & publish (${{ matrix.os }})

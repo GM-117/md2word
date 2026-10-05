@@ -3,7 +3,21 @@ name: CI
 on:
   push:
     branches: [main]
+    # 文档类改动（根目录 *.md / docs/**）不消耗三平台额度；含代码的提交不受影响
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+      - 'docs/**'
+
+# 同分支/PR 有新推送时取消在跑的旧 run——macOS 计费倍率 ×10，这是最有效的省钱项
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
