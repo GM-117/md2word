@@ -7,6 +7,10 @@ on:
     tags:
       - 'v*'
 
+# 建 Release + 上传产物 + SHA-256 清单回传均需写权限（默认只读 token 会 403）
+permissions:
+  contents: write
+
 jobs:
   release:
     name: build & publish (${{ matrix.os }})
