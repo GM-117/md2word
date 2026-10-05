@@ -1,0 +1,8 @@
+#!/bin/sh
+# 敏感信息闸门（githooks/pre-commit，经 core.hooksPath 接线，根 postinstall 自动设置）。
+# 扫描暂存区；本机未装 gitleaks 时放行（GitHub 端 push protection 对公开仓库仍会拦截）。
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] 未安装 gitleaks（brew install gitleaks），本地扫描跳过——推送后由 GitHub push protection 兜底"
+  exit 0
+fi
+exec gitleaks protect --staged --no-banner --redact -v

@@ -59,6 +59,10 @@ pnpm --filter @md2word/desktop e2e         # 桌面 E2E（Playwright _electron�
 pnpm --filter @md2word/desktop dist        # 打安装包（产物在 packages/desktop/release/）
 ```
 
+pnpm install 会自动把 git 钩子接线到 `githooks/`（`core.hooksPath`）：pre-commit 跑
+[gitleaks](https://github.com/gitleaks/gitleaks) 暂存区扫描拦截敏感信息
+（本机未装时跳过，GitHub 端 push protection 兜底）。
+
 ## 文档
 
 - [使用手册.md](使用手册.md) —— 功能详解、HTTP API 参考、错误码/警告码速查（附录 A）

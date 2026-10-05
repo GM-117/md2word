@@ -20,6 +20,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 敏感信息扫描（公开仓库免费）：全历史 + 官方 gitleaks 规则集，本地 pre-commit 之外的服务端兜底
+  secrets:
+    name: secrets-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test:
     name: ${{ matrix.os }} · lint+typecheck+test
     runs-on: ${{ matrix.os }}

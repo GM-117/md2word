@@ -1,0 +1,5 @@
+# gitleaks 配置：继承官方默认规则集（GitHub/AWS/Slack/私钥等 170+ 检测规则）。
+# 误报白名单在此追加（对历史提交的例外放行须在注释中说明依据），规则文档：
+# https://github.com/gitleaks/gitleaks#configuration
+[extend]
+useDefault = true

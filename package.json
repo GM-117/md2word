@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "setup": "pnpm --filter @md2word/core run fetch:pandoc",
+    "postinstall": "git config core.hooksPath githooks 2>/dev/null || true",
     "dev": "concurrently -k -n host,renderer -c blue,green \"pnpm --filter @md2word/web-host dev\" \"pnpm --filter @md2word/renderer dev\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
