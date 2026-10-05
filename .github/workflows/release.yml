@@ -17,7 +17,9 @@ jobs:
         include:
           - os: macos-14
             args: --arm64
-          - os: macos-13
+          # x64 dmg 在 arm64 runner 上交叉构建（本机 M4 已验证同路径可行）；
+          # macos-13 已被 GitHub 降级排队（CI 实测等待 runner 24h 超时），不再使用
+          - os: macos-14
             args: --x64
           - os: windows-2022
             args: ''
@@ -36,6 +38,12 @@ jobs:
 
       - name: Fetch pandoc sidecar
         run: pnpm setup
+
+      # 交叉构建：pnpm setup 只拉当前架构，x64 作业需显式补 darwin-x64 sidecar
+      # （fetch-pandoc 支持平台覆盖参数；prepare-resources 按 --x64 暂存对应架构）
+      - name: Fetch darwin-x64 sidecar (cross-arch build)
+        if: matrix.args == '--x64'
+        run: node packages/core/scripts/fetch-pandoc.mjs darwin-x64
 
       - name: Build packages
         run: pnpm build

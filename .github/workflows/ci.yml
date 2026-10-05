@@ -12,7 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-13, windows-2022]
+        # macos-13 已被 GitHub 降级排队（实测等待 runner 24h 超时），改用 macos-15
+        os: [macos-14, macos-15, windows-2022]
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +30,11 @@ jobs:
 
       - name: Fetch pandoc sidecar (SHA-256 verified)
         run: pnpm setup
+
+      # 全新 clone 无 core dist（@md2word/core 的 types/main 指向 dist），
+      # 跨包 typecheck/测试前必须先构建（本地有历史 dist 掩盖了此问题，D38）
+      - name: Build packages
+        run: pnpm build
 
       - name: Lint
         run: pnpm lint
