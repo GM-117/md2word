@@ -225,8 +225,10 @@ async function handleLogExport(): Promise<void> {
     if (canceled || !filePath) return;
     writeFileSync(filePath, services.logger.exportText(), 'utf8');
     services.logger.info(`log exported: ${filePath}`);
+    notifyRenderer({ ok: true, filename: 'md2word-log.txt', savedPath: filePath });
   } catch (err) {
     services.logger.error(`log export failed: ${err instanceof Error ? err.message : String(err)}`);
+    notifyRenderer({ ok: false, filename: 'md2word-log.txt' });
   }
 }
 
@@ -253,5 +255,22 @@ function registerDownloadBehavior(): void {
     if (e2eDir) {
       item.setSavePath(join(e2eDir, `${Date.now()}-${item.getFilename()}`));
     }
+    // 保存结果反馈（D33）：完成/失败推送 toast；用户在保存对话框主动取消（cancelled）则不打扰
+    item.once('done', (_e, state) => {
+      if (state === 'cancelled') return;
+      const ok = state === 'completed';
+      const savedPath = ok ? item.getSavePath() : undefined;
+      services?.logger[ok ? 'info' : 'error'](
+        `download ${state}: ${item.getFilename()}${savedPath ? ` → ${savedPath}` : ''}`,
+      );
+      notifyRenderer({ ok, filename: item.getFilename(), savedPath });
+    });
   });
+}
+
+/** 下载结果反馈 → 渲染层 toast（保存成功/失败即时确认，免去用户到目录人工核对） */
+function notifyRenderer(feedback: { ok: boolean; filename: string; savedPath?: string }): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('download:feedback', feedback);
+  }
 }
