@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { absolutizeImagePaths, countFencedCodeBlocks, mapOutsideCode, normalizeImageRef } from '../../src/preprocess.js';
 
-// Windows 路径断言归一化（分隔符统一 + 去盘符）：绝对化结果在 Windows 上带
-// 'D:\' 前缀与反斜杠，与 POSIX 形式同义（D39 三平台 CI 首次真跑暴露）
-const norm = (s: string) => s.replace(/\\/g, '/').replace(/^[A-Za-z]:/g, '');
+// Windows 路径断言归一化：绝对化结果在 Windows 上带盘符前缀（实现统一转正斜杠，
+// 形如 'D:/src/img.png'，与 POSIX 同义）。盘符剥离为全局精确匹配——字母后跟冒号再跟
+// 路径分隔符才剥（'https://' 等 URL scheme 前的字母非独立词首，不误伤；D39）
+const norm = (s: string) => s.replace(/\\/g, '/').replace(/(?<![A-Za-z])[A-Za-z]:(?=[\\/])/g, '');
 
 describe('absolutizeImagePaths 图片路径绝对化', () => {
   const SRC = '/src 带空格/doc.md';

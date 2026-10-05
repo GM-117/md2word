@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildPandocArgs, resolveOutputPath } from '../../src/convert.js';
 import type { ConvertOptions } from '../../src/types.js';
 
-// Windows 路径断言归一化（分隔符统一 + 去盘符）：resolveOutputPath 在 Windows 上
-// 返回 'D:\a\b\doc.docx'，与 POSIX 形式同义（D39 三平台 CI 首次真跑暴露）
-const norm = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+// Windows 路径断言归一化（分隔符统一 + 精确去盘符，不误伤 URL scheme）：
+// resolveOutputPath 在 Windows 上返回 'D:\a\b\doc.docx'，与 POSIX 形式同义（D39）
+const norm = (s: string) => s.replace(/\\/g, '/').replace(/(?<![A-Za-z])[A-Za-z]:(?=[\\/])/g, '');
 
 // M1 DoD①：参数构建器快照测试——锁定 argv 全序列（禁 shell:true，§4.1）
 const BASE = {
