@@ -194,4 +194,16 @@ test.describe('M6 批量转换', () => {
     expect(fileClick).toBe(true);   // label 转发命中文件 input
     expect(folderCalls).toBe(0);    // 不开文件夹对话框
   });
+
+  test('方案一：文件选择器仅收 md（accept 收敛）；仅选图片时 toast 明确反馈而非无响应', async () => {
+    // accept 收敛：文件对话框只列 md 类型（图片资源经拖拽/文件夹批量带入）
+    await expect(win.locator('.dropzone input[type=file]')).toHaveAttribute('accept', '.md,.markdown,.mdown,.mkd');
+
+    // 仅选一张 png：不进转换队列，toast 明确说明原因与正确用法
+    const png = join(workspace, 'only-image.png');
+    writeFileSync(png, Buffer.from('89504e470d0a1a0a0000000d', 'hex'));
+    await win.locator('.dropzone input[type=file]').setInputFiles([png]);
+    await expect(win.locator('.toast', { hasText: '未选择 .md 文件' })).toBeVisible();
+    await expect(win.locator('.toast')).toContainText('需与 .md 一起拖入');
+  });
 });

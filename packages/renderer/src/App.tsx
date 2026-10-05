@@ -348,6 +348,10 @@ export function App() {
     const mdFiles = all.filter((f) => /\.(md|markdown|mdown|mkd)$/i.test(f.name));
     const resourceFiles = all.filter((f) => !/\.(md|markdown|mdown|mkd)$/i.test(f.name));
     if (mdFiles.length === 0) {
+      // 仅选了图片/其他文件：toast 明确反馈（此前只写页面底部日志框，体感"无响应"）
+      showToast(all.length > 0
+        ? `未选择 .md 文件，已忽略 ${all.length} 个文件；图片等资源需与 .md 一起拖入（用于内联文档引用）`
+        : '未选择任何 .md 文件（支持 .md/.markdown/.mdown/.mkd）');
       setLog(['未选择任何 .md 文件（支持 .md/.markdown/.mdown/.mkd）；其余文件已忽略。']);
       return;
     }
@@ -355,7 +359,7 @@ export function App() {
       mdFiles.map((f) => ({ name: f.name, file: f })),
       resourceFiles.map((f) => ({ name: f.name, file: f })),
     );
-  }, [runConversion]);
+  }, [runConversion, showToast]);
 
   /** M6 桌面端：原生文件夹选择 → 递归扫描（排除隐藏/非 .md/node_modules）→ 批量转换 */
   const convertFolderDesktop = useCallback(async () => {
@@ -569,12 +573,17 @@ export function App() {
             <input
               type="file"
               multiple
-              accept=".md,.markdown,.mdown,.mkd,image/*"
+              accept=".md,.markdown,.mdown,.mkd"
               onChange={(e) => { if (e.target.files) void convertFiles(e.target.files); e.target.value = ''; }}
             />
             <span className="drop-ico" aria-hidden="true"><IconDocArrow /></span>
             <span className="dropzone-main">把 .md 拖到这里</span>
-            <span className="dropzone-sub">可连同图片资源一起拖入；或点击选择文件</span>
+            {/* 提示分模式（方案一第 4 项）：桌面 path 模式图片自动从源目录解析，网页 bytes 模式需伴随上传 */}
+            <span className="dropzone-sub">
+              {isDesktop
+                ? '可多选 / 拖入 .md；文档引用的本地图片会自动从原位置读取，无需携带'
+                : '可多选 / 拖入 .md；若引用了本地图片（相对路径），请连同图片一起拖入'}
+            </span>
             <span className="dropzone-actions">
               <span className="button primary">选择文件（可多选）</span>
               {isDesktop ? (
