@@ -177,6 +177,15 @@ export function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
   }, []);
 
+  // D37 下载反馈：.docx/模板下载与日志导出的保存结果由主进程推送 → toast 即时确认
+  useEffect(() => {
+    if (!isDesktop) return;
+    const unsub = window.md2word!.onDownloadFeedback((fb) => {
+      showToast(fb.ok ? `已保存：${fb.filename}` : `下载失败：${fb.filename}，请重试`);
+    });
+    return unsub;
+  }, [showToast]);
+
   const [options, setOptions] = useState<ConvertOptionsPayload>({
     toc: false,
     tocDepth: 3,

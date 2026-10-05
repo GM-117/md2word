@@ -26,9 +26,11 @@ mac:
   category: public.app-category.productivity
   icon: build/icon.icns
   identity: null
+  # 架构由 CLI/CI 参数决定（--arm64 / --x64）：target 级 arch 列表会优先于 CLI 参数，
+  # 导致单次构建打包双架构、而 extraResources 暂存只有当前参数那一份 sidecar——
+  # 后构建的架构必然拿到跨架构 pandoc（D33 根源，verify-dist 架构断言可捕获）
   target:
-    - target: dmg
-      arch: [arm64, x64]
+    - dmg
 
 win:
   icon: build/icon.ico

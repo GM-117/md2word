@@ -255,7 +255,7 @@ function registerDownloadBehavior(): void {
     if (e2eDir) {
       item.setSavePath(join(e2eDir, `${Date.now()}-${item.getFilename()}`));
     }
-    // 保存结果反馈（D33）：完成/失败推送 toast；用户在保存对话框主动取消（cancelled）则不打扰
+    // 保存结果反馈（D37）：完成/失败推送 toast；用户在保存对话框主动取消（cancelled）则不打扰
     item.once('done', (_e, state) => {
       if (state === 'cancelled') return;
       const ok = state === 'completed';

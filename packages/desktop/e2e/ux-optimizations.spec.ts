@@ -156,4 +156,28 @@ test.describe('UX 优化（桌面端）', () => {
       win.locator('.panel', { hasText: '文档模板' }).locator('.tpl-msg'),
     ).toContainText('导入成功', { timeout: 10_000 });
   });
+
+  test('U8 下载反馈（D37）：模板下载保存成功 → toast 确认含文件名', async () => {
+    // 触发一次模板下载（MD2WORD_DOWNLOAD_DIR 确定性落盘即完成）
+    await win.locator('.tpl-export').dispatchEvent('click');
+    const toast = win.locator('.toast');
+    await expect(toast).toBeVisible({ timeout: 15_000 });
+    await expect(toast).toContainText('已保存');
+    await expect(toast).toContainText('.docx');
+    // toast 自动消失（2.6s 生命周期）
+    await expect(toast).toBeHidden({ timeout: 6_000 });
+  });
+
+  test('U8b 日志导出反馈（D37）：保存成功 → toast 确认', async () => {
+    // 日志导出走 handleLogExport 的原生保存对话框——stub 后确定性落盘
+    const saveTo = join(workspace, 'exported-log-toast.txt');
+    await app.evaluate(({ dialog }, target) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: target }) as never;
+    }, saveTo);
+    await win.getByRole('link', { name: '导出日志' }).dispatchEvent('click');
+    const toast = win.locator('.toast');
+    await expect(toast).toBeVisible({ timeout: 10_000 });
+    await expect(toast).toContainText('已保存：md2word-log.txt');
+    expect(existsSync(saveTo)).toBe(true);
+  });
 });

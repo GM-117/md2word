@@ -251,7 +251,7 @@ export interface Md2WordBridge {
   cancel(): Promise<{ ok: boolean; cancelled?: number }>;
   /** M6+ 流式进度：订阅逐文件落定事件（按事件内 batchId 区分批次）；返回退订函数 */
   onConvertProgress(callback: (evt: ConvertProgressEvent) => void): () => void;
-  /** D33 下载反馈：订阅 .docx/模板下载与日志导出的保存结果（成功含 savedPath）；返回退订函数 */
+  /** D37 下载反馈：订阅 .docx/模板下载与日志导出的保存结果（成功含 savedPath）；返回退订函数 */
   onDownloadFeedback(callback: (feedback: { ok: boolean; filename: string; savedPath?: string }) => void): () => void;
   /** M6：原生文件夹选择对话框（用户取消 → ok:false） */
   pickFolder(): Promise<{ ok: boolean; path?: string }>;

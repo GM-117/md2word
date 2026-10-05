@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('md2word', {
       ipcRenderer.removeListener('convert:progress', listener);
     };
   },
-  // D33 下载反馈：保存完成/失败 → 渲染层 toast；返回退订函数
+  // D37 下载反馈：保存完成/失败 → 渲染层 toast；返回退订函数
   onDownloadFeedback: (callback: (feedback: { ok: boolean; filename: string; savedPath?: string }) => void) => {
     const listener = (_event: unknown, feedback: { ok: boolean; filename: string; savedPath?: string }): void =>
       callback(feedback);
