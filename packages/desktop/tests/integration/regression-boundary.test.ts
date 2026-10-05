@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
 import { DEFAULT_SETTINGS, type KvStore } from '../../src/main/services/settings.js';
@@ -13,7 +14,7 @@ import { unzipSync } from 'fflate';
  * 模板名穿越清洗、缺失模板回退、空文件、downloadUrl 往返。
  */
 
-const REPO = join(new URL('../../../../', import.meta.url).pathname);
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const SAMPLE = join(REPO, 'samples', 'basic-zh.md');
 
 class MemoryKvStore implements KvStore {

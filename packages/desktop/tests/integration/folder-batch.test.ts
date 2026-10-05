@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
 import { DEFAULT_SETTINGS, type KvStore } from '../../src/main/services/settings.js';
@@ -13,7 +14,7 @@ import { parseResourceUrl } from '../../src/main/services/resourceUrl.js';
  * 单文件失败不中断队列、重名产物唯一登记键、重试语义（覆盖开关后重转成功）。
  */
 
-const REPO = join(new URL('../../../../', import.meta.url).pathname);
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const SAMPLE = join(REPO, 'samples', 'basic-zh.md');
 
 class MemoryKvStore implements KvStore {

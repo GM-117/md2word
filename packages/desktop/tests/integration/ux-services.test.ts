@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
 import { DEFAULT_SETTINGS, type KvStore } from '../../src/main/services/settings.js';
@@ -12,7 +13,7 @@ import { summarizeTemplate } from '../../src/main/services/templates.js';
  * 模板样式概览提取 + recentPaths 登记与裁剪。
  */
 
-const REPO = join(new URL('../../../../', import.meta.url).pathname);
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const BUILTIN = join(REPO, 'packages', 'core', 'assets', 'reference-zh.docx');
 
 class MemoryKvStore implements KvStore {

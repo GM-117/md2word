@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { createServices, type AppServices } from '../../src/main/context.js';
 import { DEFAULT_SETTINGS, type KvStore } from '../../src/main/services/settings.js';
@@ -12,7 +13,7 @@ import { openDocx } from '@md2word/core';
  * 覆盖开发计划 M4 计划 §M4-6 集成行：path/bytes 双模式、覆盖开关、模板链、离线注入。
  */
 
-const REPO = join(new URL('../../../../', import.meta.url).pathname);
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const SAMPLE = join(REPO, 'samples', 'basic-zh.md');
 const BUILTIN_DOCX = join(REPO, 'packages', 'core', 'assets', 'reference-zh.docx');
 
