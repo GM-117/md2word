@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { prepareResources } from './prepare-resources.mjs';
 
 /**
@@ -9,11 +10,12 @@ import { prepareResources } from './prepare-resources.mjs';
 const args = process.argv.slice(2);
 prepareResources(args);
 
-// electron-builder 的 bin 是 shell shim（跨 spawn 不可靠），直接以 node 运行其 CLI 入口
-const require = createRequire(new URL('..', import.meta.url).pathname + 'package.json');
+// electron-builder 的 bin 是 shell shim（跨 spawn 不可靠），直接以 node 运行其 CLI 入口。
+// 路径一律走 fileURLToPath：URL.pathname 在 Windows 产出 '/D:/...'（D40）
+const require = createRequire(fileURLToPath(new URL('../package.json', import.meta.url)));
 const cliPath = require.resolve('electron-builder/cli.js');
 const result = spawnSync(process.execPath, [cliPath, ...args], {
-  cwd: new URL('..', import.meta.url).pathname,
+  cwd: fileURLToPath(new URL('..', import.meta.url)),
   stdio: 'inherit',
 });
 if (result.error) throw result.error;

@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 打包资源暂存（dist.mjs 编排，electron-builder extraResources 引用 resources/）：
@@ -10,7 +11,7 @@ import { join } from 'node:path';
  * GPL 声明不入暂存：electron-builder 直接取 build/THIRD-PARTY-LICENSES.md（提交物）。
  */
 
-const HERE = new URL('.', import.meta.url).pathname;
+const HERE = fileURLToPath(new URL('.', import.meta.url));
 const DESKTOP = join(HERE, '..');
 const REPO = join(DESKTOP, '..', '..');
 const CORE_ASSETS = join(REPO, 'packages', 'core', 'assets');

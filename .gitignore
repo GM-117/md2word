@@ -37,6 +37,15 @@ samples/**/*.docx
 packages/desktop/resources/
 packages/desktop/release/
 
+# electron-builder 资源目录（buildResources）必须入库：图标 + GPL 随包声明是 CI 打包依赖；
+# 其余内容仍忽略。曾因通用 build/ 规则整目录被忽略，CI 产物丢图标与 GPL 声明（D40）
+!packages/desktop/build/
+packages/desktop/build/*
+!packages/desktop/build/icon.icns
+!packages/desktop/build/icon.ico
+!packages/desktop/build/icon_512.png
+!packages/desktop/build/THIRD-PARTY-LICENSES.md
+
 # os / editor
 .DS_Store
 Thumbs.db

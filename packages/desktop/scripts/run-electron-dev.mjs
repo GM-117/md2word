@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 桌面开发：等待 renderer 的 Vite dev server（127.0.0.1:5173）就绪后拉起 Electron。
@@ -28,7 +29,7 @@ async function waitForServer(url: string): Promise<void> {
 await waitForServer(URL_TO_WAIT);
 console.log(`[desktop] renderer 就绪：${URL_TO_WAIT}，启动 Electron…`);
 const child = spawn('electron', ['.'], {
-  cwd: new URL('..', import.meta.url).pathname,
+  cwd: fileURLToPath(new URL('..', import.meta.url)),
   stdio: 'inherit',
   env: { ...process.env, VITE_DEV_SERVER_URL: URL_TO_WAIT },
 });
